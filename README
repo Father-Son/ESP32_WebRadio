@@ -1,6 +1,9 @@
 ESP32 WebRadio
 
 WebRadio dependencies:
--)  https://github.com/schreibfaul1/ESP32-audioI2S.git
+-)  https://github.com/pschatzmann/arduino-audio-tools.git
+-)  https://github.com/pschatzmann/ESP32-A2DP.git
 -)  https://github.com/pschatzmann/arduino-audio-driver
+-)  https://github.com/schreibfaul1/ESP32-audioI2S.git
 -)  https://github.com/duinoWitchery/hd44780.git
+-)  https://github.com/mathertel/OneButton.git#2.5.0
