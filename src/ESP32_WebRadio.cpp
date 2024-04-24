@@ -5,8 +5,8 @@
 #include "OneButton.h"
 #include <hd44780.h>                       // main hd44780 header
 #include <hd44780ioClass/hd44780_I2Cexp.h> // i2c expander i/o class header
-//#include "AudioTools.h"
 #include "BluetoothA2DPSink.h"
+// WiFi SSID and PWD definition...
 #include "mysecret.h"
 hd44780_I2Cexp lcd; // declare lcd object: auto locate & auto config expander chip
 // LCD geometry
@@ -138,15 +138,6 @@ void setup() {
 //  audio.connecttoFS(SD_MMC, "/test.wav"); // SD_MMC
 //  audio.connecttoFS(SPIFFS, "/test.wav"); // SPIFFS
 }
-// add i2s pins:           mclk,bck,ws,data_out, data_in ,(port)
-//addI2S(PinFunction::CODEC, 0, 27, 25, 26, 35);
-/*i2s_pin_config_t my_pin_config = {
-    .mck_io_num = 0, //I2S_PIN_NO_CHANGE,
-    .bck_io_num = 27,
-    .ws_io_num = 25,
-    .data_out_num = 26,
-    .data_in_num = 35 //I2S_PIN_NO_CHANGE
-};*/
 
 void loop()
 {
