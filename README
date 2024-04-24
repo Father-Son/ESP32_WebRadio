@@ -1,0 +1,6 @@
+ESP32 WebRadio
+
+WebRadio realizzata utilizzando una scheda ESP32-Audio-Kit. Dipende dalle librerie:
+-)  https://github.com/schreibfaul1/ESP32-audioI2S.git
+-)  https://github.com/pschatzmann/arduino-audio-driver
+-)  https://github.com/duinoWitchery/hd44780.git
