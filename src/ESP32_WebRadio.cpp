@@ -59,10 +59,14 @@ const char *stationsName[] = {
   PROGMEM("Radio 105"),
   PROGMEM("Subasio")
 };
+/******************************************************/
+/*Use this link to fin streams: https://streamurl.link*/
+/******************************************************/
 const char *stationUrls[] = {
   PROGMEM("http://streamcdnb1-4c4b867c89244861ac216426883d1ad0.msvdn.net/radiodeejay/radiodeejay/play1.m3u8"),
   PROGMEM("http://icy.unitedradio.it/Virgin.mp3"),
-  PROGMEM("https://s4.yesstreaming.net/proxy/contror1/stream"), //Controradio  
+  //PROGMEM("https://s4.yesstreaming.net/proxy/contror1/stream"), //Controradio  
+  PROGMEM("http://streaming.controradio.it:8190/"), //Controradio  
   //PROGMEM("http://s4.yesstreaming.net:7199/stream"), //Controradio  
   PROGMEM("http://streamcdnf25-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejay80/live.m3u8"),
   PROGMEM("http://streamcdnm5-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejayontheroad/live.m3u8"),
