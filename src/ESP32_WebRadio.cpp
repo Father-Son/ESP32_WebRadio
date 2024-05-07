@@ -23,8 +23,8 @@ BluetoothA2DPSink *a2dp_sink;
 #define I2S_BCLK      27
 #define I2S_LRC       25
 Audio *audio;
-OneButton KEY_1(36), KEY_2(13), KEY_3(19), KEY_4(23), KEY_5(18), KEY_6(5);
-
+//OneButton KEY_1(36), KEY_2(13), KEY_3(19), KEY_4(23), KEY_5(18), *KEY_6;//(5);
+OneButton *KEY_1, *KEY_2, *KEY_3, *KEY_4, *KEY_5, *KEY_6;
 enum MachineStates {
     STATE_INIT,
     STATE_WAITWIFICONNECTION,
@@ -114,18 +114,29 @@ void setup() {
     }
     
     AudioKitEs8388V1.begin(cfg); 
-    KEY_1.attachClick(prevStation);
-    KEY_2.attachClick(nextStation);
-    KEY_3.attachClick(volumeDown);
-    KEY_4.attachClick(volumeUp);
-    KEY_5.attachClick(setTone);
-    KEY_6.attachClick(changeMode);
-    /*Codice per estrarre il pin a cui e' collegata la prima KEY da testare
-    auto pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 0);
-    auto pinne = pins.value();
-    int i = pinne.pin;
-    Serial.println("****************************************************************%d", i);
-  	*/
+
+    
+    /*auto pinne = pins.value();
+    int i = pinne.pin;*/
+    auto pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 1);
+    KEY_1 = new OneButton(pins.value().pin);
+    KEY_1->attachClick(prevStation);
+    pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 2);
+    KEY_2 = new OneButton(pins.value().pin);    
+    KEY_2->attachClick(nextStation);
+    pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 3);
+    KEY_3 = new OneButton(pins.value().pin);    
+    KEY_3->attachClick(volumeDown);
+    pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 4);
+    KEY_4 = new OneButton(pins.value().pin);    
+    KEY_4->attachClick(volumeUp);
+    pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 5);
+    KEY_5 = new OneButton(pins.value().pin);    
+    KEY_5->attachClick(setTone);
+    pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 6);
+    KEY_6 = new OneButton(pins.value().pin);
+    KEY_6->attachClick(changeMode);
+
     int status = lcd.begin(LCD_COLS, LCD_ROWS);
 	if(status) // non zero status means it was unsuccesful
 	{
@@ -196,12 +207,12 @@ void loop()
     default:
         break;
     }
-    KEY_1.tick();
-    KEY_2.tick();
-    KEY_3.tick();
-    KEY_4.tick();
-    KEY_5.tick();
-    KEY_6.tick();
+    KEY_1->tick();
+    KEY_2->tick();
+    KEY_3->tick();
+    KEY_4->tick();
+    KEY_5->tick();
+    KEY_6->tick();
 }
 void setTone()
 {
