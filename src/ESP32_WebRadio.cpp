@@ -282,6 +282,7 @@ void prevStation()
 } 
 void nextStation()
 {
+    Serial.println("NextStation");
     switch (currentState)
     { 
         case STATE_RADIO:  
