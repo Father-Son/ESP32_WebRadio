@@ -18,6 +18,9 @@ bool bLcdFatalError = false;
 /*Bluetooth a2dp section*/
 I2SStream i2s;
 BluetoothA2DPSink *a2dp_sink;
+
+#define DEBUGGAME
+
 //Audiokit i2s pin definition
 #define I2S_DOUT      26 //35
 #define I2S_BCLK      27
@@ -43,7 +46,7 @@ void setTone();
 void printOnLcd(int idx, const char *info = NULL);
 void changeMode();
 void avrc_metadata_callback(uint8_t data1, const uint8_t *data2);
-
+void logSuSeriale(const __FlashStringHelper *frmt, ...);
 
 #define IDX_LAST_STATIONS 9
 static int i_stationIdx = -1;
@@ -78,21 +81,22 @@ const char *stationUrls[] = {
   PROGMEM("http://icy.unitedradio.it/Subasio.mp3")
 };
 void setup() {
-    
+#ifdef DEBUGGAME  
     Serial.begin(115200);
     while (!Serial) {
     ;
     }
+#endif    
     LOGLEVEL_AUDIODRIVER = AudioDriverError;
-    Serial.println("*****************************");
-    Serial.printf("Total Falsh: %d\n", ESP.getFlashChipSize());
-    Serial.printf("Total heap: %d\n", ESP.getHeapSize());
-    Serial.printf("Free heap: %d\n", ESP.getFreeHeap());
-    Serial.printf("Total PSRAM: %d\n", ESP.getPsramSize());
-    Serial.printf("Free PSRAM: %d-%d\n", ESP.getFreePsram(), UINT16_MAX);
-    Serial.printf( "ESP32 Chip model:  %s Rev %d\n", ESP.getChipModel(), ESP.getChipRevision());
-    Serial.printf( "SdkVersion:        %s\n",                            ESP.getSdkVersion());
-    Serial.println("*****************************");
+    logSuSeriale(F("*****************************\n"));
+    logSuSeriale(F("Total Falsh: %d\n"), ESP.getFlashChipSize());
+    logSuSeriale(F("Total heap: %d\n"), ESP.getHeapSize());
+    logSuSeriale(F("Free heap: %d\n"), ESP.getFreeHeap());
+    logSuSeriale(F("Total PSRAM: %d\n"), ESP.getPsramSize());
+    logSuSeriale(F("Free PSRAM: %d-%d\n"), ESP.getFreePsram(), UINT16_MAX);
+    logSuSeriale(F("ESP32 Chip model:  %s Rev %d\n"), ESP.getChipModel(), ESP.getChipRevision());
+    logSuSeriale(F("SdkVersion:        %s\n"), ESP.getSdkVersion());
+    logSuSeriale(F("*****************************\n"));
     CodecConfig cfg;
     cfg.input_device = audio_driver::ADC_INPUT_NONE;
     cfg.output_device = audio_driver::DAC_OUTPUT_ALL;
@@ -355,21 +359,22 @@ void printOnLcd(int idx, const char* info)
 } 
 void audio_info(const char*info)
 {
-    Serial.printf("audio_info %s-%s\n", info, audio->getCodecname());
+    logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
 }
 
 void audio_showstreamtitle(const char* info)
 {
-    Serial.printf("showstreamtitle %s-%s\n", info, audio->getCodecname());
+    if (strlen(info))
+        Serial.printf("showstreamtitle %s-%s\n", info, audio->getCodecname());
     printOnLcd(i_stationIdx, info);
 }
 void audio_icydescription(const char* info)
 {
-    Serial.printf("icydescription %s\n", info);
+    //Serial.printf("icydescription %s\n", info);
 }
 void audio_commercial(const char* info)
 {
-    Serial.printf("commercial %s\n", info);
+    //Serial.printf("commercial %s\n", info);
 }
 
 void audio_eof_speech(const char*info)
@@ -397,5 +402,17 @@ void changeMode()
     }
 }
 void avrc_metadata_callback(uint8_t data1, const uint8_t *data2) {
-  Serial.printf("AVRC metadata rsp: attribute id 0x%x, %s\n", data1, data2);
+  logSuSeriale(F("AVRC metadata rsp: attribute id 0x%x, %s\n"), data1, data2);
+}
+
+void logSuSeriale(const __FlashStringHelper *frmt, ...) {
+#ifdef DEBUGGAME
+  va_list args;
+  va_start(args, frmt);
+  static uint const MSG_BUF_SIZE = 256;
+  char msg_buf[MSG_BUF_SIZE] = {0};
+  vsnprintf_P(msg_buf, MSG_BUF_SIZE, (const char *)frmt, args);
+  Serial.print(msg_buf);
+  va_end(args);
+#endif
 }
