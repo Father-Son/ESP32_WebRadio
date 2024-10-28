@@ -27,7 +27,7 @@ BluetoothA2DPSink *a2dp_sink;
 #define I2S_LRC       25
 Audio *audio;
 //OneButton KEY_1(36), KEY_2(13), KEY_3(19), KEY_4(23), KEY_5(18), *KEY_6;//(5);
-OneButton *KEY_1, *KEY_2, *KEY_3, *KEY_4, *KEY_5, *KEY_6;
+OneButton KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6;
 enum MachineStates {
     STATE_INIT,
     STATE_WAITWIFICONNECTION,
@@ -113,7 +113,7 @@ void setup() {
         // update infrmation
         if (!AudioKitEs8388V1.getPins().setI2C(i2c))
         {
-            Serial.println("Failed to set Wire1 for internal use!");
+            logSuSeriale(F("Failed to set Wire1 for internal use!"));
         }
     }
     
@@ -123,23 +123,23 @@ void setup() {
     /*auto pinne = pins.value();
     int i = pinne.pin;*/
     auto pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 1);
-    KEY_1 = new OneButton(pins.value().pin);
-    KEY_1->attachClick(prevStation);
+    KEY_1.setup(pins.value().pin);
+    KEY_1.attachClick(prevStation);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 2);
-    KEY_2 = new OneButton(pins.value().pin);    
-    KEY_2->attachClick(nextStation);
+    KEY_2.setup(pins.value().pin);
+    KEY_2.attachClick(nextStation);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 3);
-    KEY_3 = new OneButton(pins.value().pin);    
-    KEY_3->attachClick(volumeDown);
+    KEY_3.setup(pins.value().pin);
+    KEY_3.attachClick(volumeDown);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 4);
-    KEY_4 = new OneButton(pins.value().pin);    
-    KEY_4->attachClick(volumeUp);
+    KEY_4.setup(pins.value().pin);
+    KEY_4.attachClick(volumeUp);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 5);
-    KEY_5 = new OneButton(pins.value().pin);    
-    KEY_5->attachClick(setTone);
+    KEY_5.setup(pins.value().pin);
+    KEY_5.attachClick(setTone);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 6);
-    KEY_6 = new OneButton(pins.value().pin);
-    KEY_6->attachClick(changeMode);
+    KEY_6.setup(pins.value().pin);
+    KEY_6.attachClick(changeMode);
 
     int status = lcd.begin(LCD_COLS, LCD_ROWS);
 	if(status) // non zero status means it was unsuccesful
@@ -164,7 +164,7 @@ void loop()
     switch (currentState)
     {
     case STATE_INIT:
-        Serial.println("Mode init!");
+         logSuSeriale(F("Mode init!"));
         WiFi.enableSTA(true); //Needed to switch on WIFI?
         WiFi.mode(WIFI_STA);
         WiFi.begin(ssid_1, password_1);
@@ -181,7 +181,7 @@ void loop()
         //Serial.println("Mode STATE_WAITWIFICONNECTION!");
         if (WiFi.status() == WL_CONNECTED)
         {
-            Serial.println("Move to STATE_RADIO!");
+             logSuSeriale(F("Move to STATE_RADIO!"));
             currentState = STATE_RADIO;
             nextStation();
         }
@@ -203,7 +203,7 @@ void loop()
             a2dp_sink->set_avrc_metadata_callback(avrc_metadata_callback);
             a2dp_sink->start("ESP32_Speaker");
             //AudioKitEs8388V1.setInputVolume(100);
-            Serial.println("Mode bluetooth speaker");
+             logSuSeriale(F("Mode bluetooth speaker"));
             iInitialVolume = 100;
             AudioKitEs8388V1.setVolume(iInitialVolume);
             currentState = STATE_BLUETOOTSPEAKER;
@@ -211,12 +211,12 @@ void loop()
     default:
         break;
     }
-    KEY_1->tick();
-    KEY_2->tick();
-    KEY_3->tick();
-    KEY_4->tick();
-    KEY_5->tick();
-    KEY_6->tick();
+    KEY_1.tick();
+    KEY_2.tick();
+    KEY_3.tick();
+    KEY_4.tick();
+    KEY_5.tick();
+    KEY_6.tick();
 }
 void setTone()
 {
@@ -265,10 +265,9 @@ void prevStation()
             i_stationIdx--;
             if (i_stationIdx < 0)
                 i_stationIdx = IDX_LAST_STATIONS;
-            Serial.printf("Station %d-%s\n", i_stationIdx, stationsName[i_stationIdx]);
+             logSuSeriale(F("Station %d-%s\n"), i_stationIdx, stationsName[i_stationIdx]);
             if(!audio->connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
             {
-                Serial.println("Entro qui!");
                 audio->connecttohost(stationUrls[i_stationIdx]);
             }
             printOnLcd(i_stationIdx);
@@ -286,7 +285,7 @@ void prevStation()
 } 
 void nextStation()
 {
-    Serial.println("NextStation");
+     logSuSeriale(F("NextStation"));
     switch (currentState)
     { 
         case STATE_RADIO:  
@@ -294,7 +293,7 @@ void nextStation()
                 i_stationIdx++;
             else
                 i_stationIdx = 0;
-            Serial.printf("Station %d-%s\n", i_stationIdx, stationsName[i_stationIdx]);
+             logSuSeriale(F("Station %d-%s\n"), i_stationIdx, stationsName[i_stationIdx]);
             if(!audio->connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
                 audio->connecttohost(stationUrls[i_stationIdx]);
             printOnLcd(i_stationIdx);
@@ -366,7 +365,7 @@ void audio_info(const char*info)
 void audio_showstreamtitle(const char* info)
 {
     if (strlen(info))
-        Serial.printf("showstreamtitle %s-%s\n", info, audio->getCodecname());
+         logSuSeriale(F("showstreamtitle %s-%s\n"), info, audio->getCodecname());
     printOnLcd(i_stationIdx, info);
 }
 void audio_icydescription(const char* info)
@@ -380,7 +379,7 @@ void audio_commercial(const char* info)
 
 void audio_eof_speech(const char*info)
 {
-    Serial.println("End of speech!");
+     logSuSeriale(F("End of speech!"));
     audio->connecttohost(stationUrls[i_stationIdx]);
 }
 
