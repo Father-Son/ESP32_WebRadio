@@ -25,7 +25,7 @@ BluetoothA2DPSink *a2dp_sink;
 #define I2S_DOUT      26 //35
 #define I2S_BCLK      27
 #define I2S_LRC       25
-Audio *audio;
+Audio audio;
 //OneButton KEY_1(36), KEY_2(13), KEY_3(19), KEY_4(23), KEY_5(18), *KEY_6;//(5);
 OneButton KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6;
 enum MachineStates {
@@ -69,7 +69,7 @@ const char *stationUrls[] = {
   PROGMEM("http://streamcdnb1-4c4b867c89244861ac216426883d1ad0.msvdn.net/radiodeejay/radiodeejay/play1.m3u8"),
   PROGMEM("http://icy.unitedradio.it/Virgin.mp3"),
   //PROGMEM("https://s4.yesstreaming.net/proxy/contror1/stream"), //Controradio  
-  PROGMEM("http://streaming.controradio.it:8190/"), //Controradio  
+  PROGMEM("http://streaming.controradio.it:8190/;?type=http&nocache=76494"), //Controradio  
   //PROGMEM("http://s4.yesstreaming.net:7199/stream"), //Controradio  
   PROGMEM("http://streamcdnf25-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejay80/live.m3u8"),
   PROGMEM("http://streamcdnm5-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejayontheroad/live.m3u8"),
@@ -170,10 +170,8 @@ void loop()
         WiFi.begin(ssid_1, password_1);
         iInitialVolume = 25;
         AudioKitEs8388V1.setVolume(iInitialVolume);
-        
-        audio = new Audio;
-        audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, 0);
-        audio->setVolume(21);
+        audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, 0);
+        audio.setVolume(21);
         i_stationIdx = -1;
         currentState = STATE_WAITWIFICONNECTION;
         break;
@@ -189,7 +187,7 @@ void loop()
         break;
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
-            audio->loop();
+            audio.loop();
             if ((millis() - iUltimaAccensioneDisplay) > iTimeoutDisplay)
             {
                 lcd.noBacklight();
@@ -227,12 +225,12 @@ void setTone()
     {
         case 0:
             // statements
-            audio->setTone(0, -12, -24);
+            audio.setTone(0, -12, -24);
             Serial.printf("%d\n", iToneStatus);
             iToneStatus = 1;
             break;
         case 1:
-            audio->setTone(0, 0, 0);
+            audio.setTone(0, 0, 0);
             Serial.printf("%d\n", iToneStatus);
             iToneStatus = 0;
             break;
@@ -266,9 +264,9 @@ void prevStation()
             if (i_stationIdx < 0)
                 i_stationIdx = IDX_LAST_STATIONS;
              logSuSeriale(F("Station %d-%s\n"), i_stationIdx, stationsName[i_stationIdx]);
-            if(!audio->connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
+            if(!audio.connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
             {
-                audio->connecttohost(stationUrls[i_stationIdx]);
+                audio.connecttohost(stationUrls[i_stationIdx]);
             }
             printOnLcd(i_stationIdx);
             break;
@@ -294,8 +292,8 @@ void nextStation()
             else
                 i_stationIdx = 0;
              logSuSeriale(F("Station %d-%s\n"), i_stationIdx, stationsName[i_stationIdx]);
-            if(!audio->connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
-                audio->connecttohost(stationUrls[i_stationIdx]);
+            if(!audio.connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
+                audio.connecttohost(stationUrls[i_stationIdx]);
             printOnLcd(i_stationIdx);
             break;
         case STATE_BLUETOOTSPEAKER:
@@ -313,9 +311,9 @@ void printOnLcd(int idx, const char* info)
         lcd.setCursor(0, 0);
         lcd.printf("Staz.:%02d", idx + 1);
         lcd.setCursor(0, 1);
-        if (!strstr(audio->getCodecname(), "unkn"))
+        if (!strstr(audio.getCodecname(), "unkn"))
         {
-            lcd.printf("%s-%s", stationsName[idx], audio->getCodecname());
+            lcd.printf("%s-%s", stationsName[idx], audio.getCodecname());
         }
         else
             lcd.printf("%s", stationsName[idx]);
@@ -359,13 +357,13 @@ void printOnLcd(int idx, const char* info)
 } 
 void audio_info(const char*info)
 {
-    logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
+    logSuSeriale(F("audio_info %s-%s\n"), info, audio.getCodecname());
 }
 
 void audio_showstreamtitle(const char* info)
 {
     if (strlen(info))
-         logSuSeriale(F("showstreamtitle %s-%s\n"), info, audio->getCodecname());
+         logSuSeriale(F("showstreamtitle %s-%s\n"), info, audio.getCodecname());
     printOnLcd(i_stationIdx, info);
 }
 void audio_icydescription(const char* info)
@@ -380,7 +378,7 @@ void audio_commercial(const char* info)
 void audio_eof_speech(const char*info)
 {
      logSuSeriale(F("End of speech!"));
-    audio->connecttohost(stationUrls[i_stationIdx]);
+    audio.connecttohost(stationUrls[i_stationIdx]);
 }
 
 void changeMode()
@@ -389,7 +387,6 @@ void changeMode()
     {
         currentState = STATE_INITA2DP;
         WiFi.disconnect(true, true);
-        delete audio;
         delay(1000);
     }
     else //BT speaker mode so move to radio
