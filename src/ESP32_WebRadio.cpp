@@ -211,7 +211,6 @@ void loop()
             a2dp_sink->start("ESP32_Speaker");
             //AudioKitEs8388V1.setInputVolume(100);
             Serial.println("Mode bluetooth speaker");
-            delay(10000);
             iInitialVolume = 70;
             AudioKitEs8388V1.setVolume(iInitialVolume);
             currentState = STATE_BLUETOOTSPEAKER;
