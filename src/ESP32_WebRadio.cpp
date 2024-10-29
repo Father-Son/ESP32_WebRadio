@@ -19,19 +19,18 @@ bool bLcdFatalError = false;
 I2SStream i2s;
 BluetoothA2DPSink *a2dp_sink;
 
-#define DEBUGGAME
+//#define DEBUGGAME
 
 //Audiokit i2s pin definition
 #define I2S_DOUT      26 //35
 #define I2S_BCLK      27
 #define I2S_LRC       25
-Audio audio;
+Audio *audio;
 //OneButton KEY_1(36), KEY_2(13), KEY_3(19), KEY_4(23), KEY_5(18), *KEY_6;//(5);
-OneButton KEY_1, KEY_2, KEY_3, KEY_4, KEY_5, KEY_6;
+OneButton *KEY_1, *KEY_2, *KEY_3, *KEY_4, *KEY_5, *KEY_6;
 enum MachineStates {
     STATE_INIT,
     STATE_WAITWIFICONNECTION,
-    STATE_INIT_RADIO,
     STATE_RADIO,
     STATE_INITA2DP,
     STATE_BLUETOOTSPEAKER
@@ -124,23 +123,23 @@ void setup() {
     /*auto pinne = pins.value();
     int i = pinne.pin;*/
     auto pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 1);
-    KEY_1.setup(pins.value().pin);
-    KEY_1.attachClick(prevStation);
+    KEY_1 = new OneButton(pins.value().pin);
+    KEY_1->attachClick(prevStation);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 2);
-    KEY_2.setup(pins.value().pin);
-    KEY_2.attachClick(nextStation);
+    KEY_2 = new OneButton(pins.value().pin);    
+    KEY_2->attachClick(nextStation);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 3);
-    KEY_3.setup(pins.value().pin);
-    KEY_3.attachClick(volumeDown);
+    KEY_3 = new OneButton(pins.value().pin);    
+    KEY_3->attachClick(volumeDown);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 4);
-    KEY_4.setup(pins.value().pin);
-    KEY_4.attachClick(volumeUp);
+    KEY_4 = new OneButton(pins.value().pin);    
+    KEY_4->attachClick(volumeUp);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 5);
-    KEY_5.setup(pins.value().pin);
-    KEY_5.attachClick(setTone);
+    KEY_5 = new OneButton(pins.value().pin);    
+    KEY_5->attachClick(setTone);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 6);
-    KEY_6.setup(pins.value().pin);
-    KEY_6.attachClick(changeMode);
+    KEY_6 = new OneButton(pins.value().pin);
+    KEY_6->attachClick(changeMode);
 
     int status = lcd.begin(LCD_COLS, LCD_ROWS);
 	if(status) // non zero status means it was unsuccesful
@@ -165,36 +164,33 @@ void loop()
     switch (currentState)
     {
     case STATE_INIT:
-        logSuSeriale(F("Mode init!"));
-        if (esp_reset_reason() == ESP_RST_SW)
-        {//Soft restart: going in bluetooth speaker mode...
-          currentState = STATE_INITA2DP;
-          break;
-        }
+        Serial.println("Mode init!");
         WiFi.enableSTA(true); //Needed to switch on WIFI?
         WiFi.mode(WIFI_STA);
+        WiFi.setTxPower(WIFI_POWER_7dBm);
         WiFi.begin(ssid_1, password_1);
+        iInitialVolume = 25;
+        AudioKitEs8388V1.setVolume(iInitialVolume);
+        
+        audio = new Audio;
+        audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, 0);
+        audio->setVolume(21);
+        i_stationIdx = -1;
         currentState = STATE_WAITWIFICONNECTION;
         break;
     case STATE_WAITWIFICONNECTION:
         //Serial.println("Mode STATE_WAITWIFICONNECTION!");
         if (WiFi.status() == WL_CONNECTED)
         {
-            logSuSeriale(F("Wifi connected!"));
+            Serial.println("Move to STATE_RADIO!");
+            currentState = STATE_RADIO;
+            nextStation();
         }
         yield();
         break;
-    case STATE_INIT_RADIO:
-        iInitialVolume = 25;
-        AudioKitEs8388V1.setVolume(iInitialVolume);
-        audio.setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, 0);
-        audio.setVolume(21);
-        i_stationIdx = -1;
-        currentState = STATE_RADIO;
-        break;
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
-            audio.loop();
+            audio->loop();
             if ((millis() - iUltimaAccensioneDisplay) > iTimeoutDisplay)
             {
                 lcd.noBacklight();
@@ -202,29 +198,34 @@ void loop()
             }
             break;
     case STATE_INITA2DP:
+    {
             a2dp_sink = new BluetoothA2DPSink(i2s);
+            auto cfg = i2s.defaultConfig();    
+            cfg.pin_bck = I2S_BCLK;
+            cfg.pin_ws = I2S_LRC;
+            cfg.pin_data = I2S_DOUT;
+            i2s.begin(cfg);
             //a2dp_sink->set_pin_config(my_pin_config);
             a2dp_sink->set_avrc_metadata_attribute_mask(ESP_AVRC_MD_ATTR_TITLE); //| ESP_AVRC_MD_ATTR_PLAYING_TIME);
             a2dp_sink->set_avrc_metadata_callback(avrc_metadata_callback);
             a2dp_sink->start("ESP32_Speaker");
             //AudioKitEs8388V1.setInputVolume(100);
-             logSuSeriale(F("Mode bluetooth speaker"));
-            iInitialVolume = 100;
+            Serial.println("Mode bluetooth speaker");
+            delay(10000);
+            iInitialVolume = 70;
             AudioKitEs8388V1.setVolume(iInitialVolume);
             currentState = STATE_BLUETOOTSPEAKER;
         break;
-    case STATE_BLUETOOTSPEAKER:
-        break;
+    }
     default:
-        ESP.restart();
         break;
     }
-    KEY_1.tick();
-    KEY_2.tick();
-    KEY_3.tick();
-    KEY_4.tick();
-    KEY_5.tick();
-    KEY_6.tick();
+    KEY_1->tick();
+    KEY_2->tick();
+    KEY_3->tick();
+    KEY_4->tick();
+    KEY_5->tick();
+    KEY_6->tick();
 }
 void setTone()
 {
@@ -235,12 +236,12 @@ void setTone()
     {
         case 0:
             // statements
-            audio.setTone(0, -12, -24);
+            audio->setTone(0, -12, -24);
             Serial.printf("%d\n", iToneStatus);
             iToneStatus = 1;
             break;
         case 1:
-            audio.setTone(0, 0, 0);
+            audio->setTone(0, 0, 0);
             Serial.printf("%d\n", iToneStatus);
             iToneStatus = 0;
             break;
@@ -249,6 +250,24 @@ void setTone()
     // statements
     }
     //Serial.printf("%d\n", iBass);
+}
+void changeMode()
+{
+    if (currentState != STATE_BLUETOOTSPEAKER) //Not state BTSpeaker then move to it
+    {
+        currentState = STATE_INITA2DP;
+        WiFi.disconnect(true, true);
+        delete audio;
+        delay(1000);
+    }
+    else //BT speaker mode so move to radio
+    {
+        currentState = STATE_INIT;        
+        a2dp_sink->disconnect();
+        a2dp_sink->end(true);
+        delete a2dp_sink;
+        delay(1000);
+    }
 }
 void volumeDown()
 {
@@ -273,10 +292,11 @@ void prevStation()
             i_stationIdx--;
             if (i_stationIdx < 0)
                 i_stationIdx = IDX_LAST_STATIONS;
-             logSuSeriale(F("Station %d-%s\n"), i_stationIdx, stationsName[i_stationIdx]);
-            if(!audio.connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
+            Serial.printf("Station %d-%s\n", i_stationIdx, stationsName[i_stationIdx]);
+            if(!audio->connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
             {
-                audio.connecttohost(stationUrls[i_stationIdx]);
+                Serial.println("Entro qui!");
+                audio->connecttohost(stationUrls[i_stationIdx]);
             }
             printOnLcd(i_stationIdx);
             break;
@@ -293,7 +313,7 @@ void prevStation()
 } 
 void nextStation()
 {
-     logSuSeriale(F("NextStation"));
+    Serial.println("NextStation");
     switch (currentState)
     { 
         case STATE_RADIO:  
@@ -301,9 +321,9 @@ void nextStation()
                 i_stationIdx++;
             else
                 i_stationIdx = 0;
-             logSuSeriale(F("Station %d-%s\n"), i_stationIdx, stationsName[i_stationIdx]);
-            if(!audio.connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
-                audio.connecttohost(stationUrls[i_stationIdx]);
+            Serial.printf("Station %d-%s\n", i_stationIdx, stationsName[i_stationIdx]);
+            if(!audio->connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
+                audio->connecttohost(stationUrls[i_stationIdx]);
             printOnLcd(i_stationIdx);
             break;
         case STATE_BLUETOOTSPEAKER:
@@ -312,24 +332,7 @@ void nextStation()
             break;
     }
 } 
-void changeMode()
-{
-    ESP.restart();
-   /*if (currentState != STATE_BLUETOOTSPEAKER) //Not state BTSpeaker then move to it
-    {
-        currentState = STATE_INITA2DP;
-        WiFi.disconnect(true, true);
-        delay(1000);
-    }
-    else //BT speaker mode so move to radio
-    {
-        currentState = STATE_INIT;
-        a2dp_sink->disconnect();
-        a2dp_sink->end(true);
-        delete a2dp_sink;
-        delay(1000);
-    }*/
-}
+
 void printOnLcd(int idx, const char* info)
 {
     if (!bLcdFatalError)
@@ -338,9 +341,9 @@ void printOnLcd(int idx, const char* info)
         lcd.setCursor(0, 0);
         lcd.printf("Staz.:%02d", idx + 1);
         lcd.setCursor(0, 1);
-        if (!strstr(audio.getCodecname(), "unkn"))
+        if (!strstr(audio->getCodecname(), "unkn"))
         {
-            lcd.printf("%s-%s", stationsName[idx], audio.getCodecname());
+            lcd.printf("%s-%s", stationsName[idx], audio->getCodecname());
         }
         else
             lcd.printf("%s", stationsName[idx]);
@@ -384,13 +387,13 @@ void printOnLcd(int idx, const char* info)
 } 
 void audio_info(const char*info)
 {
-    logSuSeriale(F("audio_info %s-%s\n"), info, audio.getCodecname());
+   // logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
 }
 
 void audio_showstreamtitle(const char* info)
 {
     if (strlen(info))
-         logSuSeriale(F("showstreamtitle %s-%s\n"), info, audio.getCodecname());
+        //Serial.printf("showstreamtitle %s-%s\n", info, audio->getCodecname());
     printOnLcd(i_stationIdx, info);
 }
 void audio_icydescription(const char* info)
@@ -404,12 +407,13 @@ void audio_commercial(const char* info)
 
 void audio_eof_speech(const char*info)
 {
-     logSuSeriale(F("End of speech!"));
-    audio.connecttohost(stationUrls[i_stationIdx]);
+    //Serial.println("End of speech!");
+    audio->connecttohost(stationUrls[i_stationIdx]);
 }
 
+
 void avrc_metadata_callback(uint8_t data1, const uint8_t *data2) {
-  logSuSeriale(F("AVRC metadata rsp: attribute id 0x%x, %s\n"), data1, data2);
+  //logSuSeriale(F("AVRC metadata rsp: attribute id 0x%x, %s\n"), data1, data2);
 }
 
 void logSuSeriale(const __FlashStringHelper *frmt, ...) {
