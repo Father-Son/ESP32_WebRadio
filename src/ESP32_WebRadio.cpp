@@ -19,7 +19,28 @@ bool bLcdFatalError = false;
 I2SStream i2s;
 BluetoothA2DPSink *a2dp_sink;
 
-//#define DEBUGGAME
+#define DEBUGGAME
+
+//Audio task definitions
+TaskHandle_t AudioTaskHandle;
+enum uieCommand{ SET_VOLUME, GET_VOLUME, NEXT_STATION, PREV_STATION, STOP_SONG};
+
+struct audioMessage{
+    uieCommand  cmd;
+    const char* txt1;
+    const char* txt2;
+    const char* txt3;
+    uint8_t    value1;
+    uint16_t    value2;
+    uint8_t    ret;
+} audioTxMessage, //Sent from loop to audiotask
+  audioRxTaskMessage,//received from audiotask sent by loop
+  audioTxTaskMessage, //Sent from audiotask to loop
+  audioRxMessage; //received from loop sent by audiotask
+
+
+QueueHandle_t LoopToAudioQueue = NULL;
+QueueHandle_t AudioToLoopQueue = NULL;
 
 //Audiokit i2s pin definition
 #define I2S_DOUT      26 //35
@@ -47,13 +68,20 @@ void printOnLcd(int idx, const char *info = NULL);
 void changeMode();
 void avrc_metadata_callback(uint8_t data1, const uint8_t *data2);
 void logSuSeriale(const __FlashStringHelper *frmt, ...);
+void audioInit(const char * urlStation);
+void audioTask(void *parameter);
 
 #define IDX_LAST_STATIONS 9
-static int i_stationIdx = -1;
+static int i_stationIdx = 0;
 const char *stationsName[] = {
-  PROGMEM("Radio Deejay"),
-  PROGMEM("Virgin Radio"),
+  PROGMEM("Virgin radio"),
+  PROGMEM("Virgin rock ottanta"),
+  PROGMEM("Virgin rock novanta"),
+  PROGMEM("Virgin classic rock"),
+  PROGMEM("Virgin radio queen"),
+  PROGMEM("Virgin radio AC-DC"),
   PROGMEM("Controradio"), //Controradio  
+  PROGMEM("Radio Deejay"),
   PROGMEM("Deejay 80"),
   PROGMEM("Deejay On The Road"),
   PROGMEM("Tropical Pizza"),
@@ -66,11 +94,14 @@ const char *stationsName[] = {
 /*Use this link to fin streams: https://streamurl.link*/
 /******************************************************/
 const char *stationUrls[] = {
-  PROGMEM("http://streamcdnb1-4c4b867c89244861ac216426883d1ad0.msvdn.net/radiodeejay/radiodeejay/play1.m3u8"),
   PROGMEM("http://icy.unitedradio.it/Virgin.mp3"),
-  //PROGMEM("https://s4.yesstreaming.net/proxy/contror1/stream"), //Controradio  
+  PROGMEM("http://icy.unitedradio.it/VirginRock80.mp3"),
+  PROGMEM("http://icy.unitedradio.it/Virgin_03.mp3"),
+  PROGMEM("http://icy.unitedradio.it/VirginRockClassics.mp3"),
+  PROGMEM("http://icy.unitedradio.it/Virgin_05.mp3"),
+  PROGMEM("http://icy.unitedradio.it/um1026.mp3"),
   PROGMEM("http://streaming.controradio.it:8190/;?type=http&nocache=76494"), //Controradio  
-  //PROGMEM("http://s4.yesstreaming.net:7199/stream"), //Controradio  
+  PROGMEM("http://streamcdnb1-4c4b867c89244861ac216426883d1ad0.msvdn.net/radiodeejay/radiodeejay/play1.m3u8"),
   PROGMEM("http://streamcdnf25-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejay80/live.m3u8"),
   PROGMEM("http://streamcdnm5-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejayontheroad/live.m3u8"),
   PROGMEM("http://streamcdnm12-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejaytropicalpizza/live.m3u8"),
@@ -171,11 +202,6 @@ void loop()
         WiFi.begin(ssid_1, password_1);
         iInitialVolume = 25;
         AudioKitEs8388V1.setVolume(iInitialVolume);
-        
-        audio = new Audio;
-        audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, 0);
-        audio->setVolume(21);
-        i_stationIdx = -1;
         currentState = STATE_WAITWIFICONNECTION;
         break;
     case STATE_WAITWIFICONNECTION:
@@ -183,14 +209,13 @@ void loop()
         if (WiFi.status() == WL_CONNECTED)
         {
             Serial.println("Move to STATE_RADIO!");
+            audioInit(stationUrls[0]);
             currentState = STATE_RADIO;
-            nextStation();
         }
         yield();
         break;
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
-            audio->loop();
             if ((millis() - iUltimaAccensioneDisplay) > iTimeoutDisplay)
             {
                 lcd.noBacklight();
@@ -256,7 +281,7 @@ void changeMode()
     {
         currentState = STATE_INITA2DP;
         WiFi.disconnect(true, true);
-        delete audio;
+        //todo: Stop audio task and clean
         delay(1000);
     }
     else //BT speaker mode so move to radio
@@ -292,11 +317,10 @@ void prevStation()
             if (i_stationIdx < 0)
                 i_stationIdx = IDX_LAST_STATIONS;
             Serial.printf("Station %d-%s\n", i_stationIdx, stationsName[i_stationIdx]);
-            if(!audio->connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
-            {
-                Serial.println("Entro qui!");
-                audio->connecttohost(stationUrls[i_stationIdx]);
-            }
+            audioTxMessage.cmd = PREV_STATION;
+            audioTxMessage.txt1 = stationUrls[i_stationIdx];
+            audioTxMessage.txt2 = stationsName[i_stationIdx];
+            xQueueSend(LoopToAudioQueue, &audioTxMessage, portMAX_DELAY);
             printOnLcd(i_stationIdx);
             break;
         case STATE_BLUETOOTSPEAKER:
@@ -321,8 +345,11 @@ void nextStation()
             else
                 i_stationIdx = 0;
             Serial.printf("Station %d-%s\n", i_stationIdx, stationsName[i_stationIdx]);
-            if(!audio->connecttospeech(stationsName[i_stationIdx], "it")) // Google TTS
-                audio->connecttohost(stationUrls[i_stationIdx]);
+            audioTxMessage.cmd = NEXT_STATION;
+            audioTxMessage.value1 = i_stationIdx;
+            audioTxMessage.txt1 = stationUrls[i_stationIdx];
+            audioTxMessage.txt2 = stationsName[i_stationIdx];
+            xQueueSend(LoopToAudioQueue, &audioTxMessage, portMAX_DELAY);
             printOnLcd(i_stationIdx);
             break;
         case STATE_BLUETOOTSPEAKER:
@@ -331,6 +358,66 @@ void nextStation()
             break;
     }
 } 
+
+//Begin audio thread section
+
+void CreateQueues(){
+    LoopToAudioQueue = xQueueCreate(2, sizeof(struct audioMessage));
+    AudioToLoopQueue = xQueueCreate(2, sizeof(struct audioMessage));
+}
+void audioInit(const char * urlStation)
+{
+    CreateQueues();
+    audio = new Audio;
+    audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, 0);
+    audio->setVolume(35);
+    audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+    audio->setVolumeSteps(35);
+    audio->setVolume(35); // due to call to upper call 0...35!
+    if (!audio->connecttohost(urlStation))
+    {
+    ESP.restart();
+    }
+    // aac
+    logSuSeriale(F("init %s\n"),urlStation);
+    xTaskCreatePinnedToCore(
+        audioTask,          /* Function to implement the task */
+        "audioplay",        /* Name of the task */
+        7500,               /* Stack size in words */
+        NULL,               /* Task input parameter */
+        2,                  /* Priority of the task */
+        &AudioTaskHandle,   /* Task handle. */
+        0                   /* Core where the task should run */
+    );
+}
+
+void audioTask(void *parameter)
+{
+  while (true)
+  {
+    if(xQueueReceive(LoopToAudioQueue, &audioRxTaskMessage, 1) == pdPASS)
+    {
+      if (audioRxTaskMessage.cmd == STOP_SONG)
+      {
+        logSuSeriale(F("Stop song received\n"));
+        audio->stopSong();
+        break;
+      }
+      
+      if (audioRxTaskMessage.cmd == NEXT_STATION || audioRxTaskMessage.cmd == PREV_STATION)
+      {
+        if (!audio->connecttospeech(audioRxTaskMessage.txt2, "it"))
+        {
+          ESP.restart();
+        }
+      }
+    }
+
+    audio->loop();
+    vTaskDelay(7); //Necessario??
+  }
+  vTaskDelete( NULL );
+}
 
 void printOnLcd(int idx, const char* info)
 {
@@ -392,12 +479,12 @@ void audio_info(const char*info)
 void audio_showstreamtitle(const char* info)
 {
     if (strlen(info))
-        //Serial.printf("showstreamtitle %s-%s\n", info, audio->getCodecname());
-    printOnLcd(i_stationIdx, info);
+        Serial.printf("showstreamtitle %s-%s\n", info, audio->getCodecname());
+    //printOnLcd(i_stationIdx, info);
 }
 void audio_icydescription(const char* info)
 {
-    //Serial.printf("icydescription %s\n", info);
+    Serial.printf("icydescription %s\n", info);
 }
 void audio_commercial(const char* info)
 {
@@ -407,16 +494,18 @@ void audio_commercial(const char* info)
 void audio_eof_speech(const char*info)
 {
     //Serial.println("End of speech!");
-    audio->connecttohost(stationUrls[i_stationIdx]);
+    logSuSeriale(F("End of speech %s\n"), audioRxTaskMessage.txt2);
+    audio->connecttohost(audioRxTaskMessage.txt1);
 }
 
 
 void avrc_metadata_callback(uint8_t data1, const uint8_t *data2) {
   //logSuSeriale(F("AVRC metadata rsp: attribute id 0x%x, %s\n"), data1, data2);
 }
-
+SemaphoreHandle_t mutex_updating;
 void logSuSeriale(const __FlashStringHelper *frmt, ...) {
 #ifdef DEBUGGAME
+//xSemaphoreTakeRecursive(mutex_updating, portMAX_DELAY);
   va_list args;
   va_start(args, frmt);
   static uint const MSG_BUF_SIZE = 256;
@@ -424,5 +513,6 @@ void logSuSeriale(const __FlashStringHelper *frmt, ...) {
   vsnprintf_P(msg_buf, MSG_BUF_SIZE, (const char *)frmt, args);
   Serial.print(msg_buf);
   va_end(args);
+  // xSemaphoreGive(mutex_updating);
 #endif
 }
