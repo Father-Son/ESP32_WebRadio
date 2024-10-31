@@ -18,7 +18,7 @@ bool bLcdFatalError = false;
 /*Bluetooth a2dp section*/
 I2SStream i2s;
 BluetoothA2DPSink *a2dp_sink;
-
+WiFiServer *server;
 #define DEBUGGAME
 
 //Audio task definitions
@@ -52,6 +52,8 @@ OneButton *KEY_1, *KEY_2, *KEY_3, *KEY_4, *KEY_5, *KEY_6;
 enum MachineStates {
     STATE_INIT,
     STATE_WAITWIFICONNECTION,
+    STATE_INITAP,
+    STATE_AP,
     STATE_RADIO,
     STATE_INITA2DP,
     STATE_BLUETOOTSPEAKER
@@ -80,15 +82,15 @@ const char *stationsName[] = {
   PROGMEM("Virgin classic rock"),
   PROGMEM("Virgin radio queen"),
   PROGMEM("Virgin radio AC-DC"),
-  PROGMEM("Controradio"), //Controradio  
   PROGMEM("Radio Deejay"),
   PROGMEM("Deejay 80"),
   PROGMEM("Deejay On The Road"),
   PROGMEM("Tropical Pizza"),
-  PROGMEM("Mitology"), //Mytology
+  PROGMEM("Mitology"), 
   PROGMEM("RTL 102.5"),
   PROGMEM("Radio 105"),
-  PROGMEM("Subasio")
+  PROGMEM("Subasio"),
+  PROGMEM("Controradio"), 
 };
 /******************************************************/
 /*Use this link to fin streams: https://streamurl.link*/
@@ -99,8 +101,7 @@ const char *stationUrls[] = {
   PROGMEM("http://icy.unitedradio.it/Virgin_03.mp3"),
   PROGMEM("http://icy.unitedradio.it/VirginRockClassics.mp3"),
   PROGMEM("http://icy.unitedradio.it/Virgin_05.mp3"),
-  PROGMEM("http://icy.unitedradio.it/um1026.mp3"),
-  PROGMEM("http://streaming.controradio.it:8190/;?type=http&nocache=76494"), //Controradio  
+  PROGMEM("http://icy.unitedradio.it/um1026.mp3"), 
   PROGMEM("http://streamcdnb1-4c4b867c89244861ac216426883d1ad0.msvdn.net/radiodeejay/radiodeejay/play1.m3u8"),
   PROGMEM("http://streamcdnf25-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejay80/live.m3u8"),
   PROGMEM("http://streamcdnm5-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejayontheroad/live.m3u8"),
@@ -109,14 +110,18 @@ const char *stationUrls[] = {
   //PROGMEM("http://streamcdnc2-dd782ed59e2a4e86aabf6fc508674b59.msvdn.net/live/S97044836/chunklist_b128000.m3u8"),
   PROGMEM("https://streamingv2.shoutcast.com/rtl-1025_48.aac"),
   PROGMEM("http://icecast.unitedradio.it/Radio105.mp3"),
-  PROGMEM("http://icy.unitedradio.it/Subasio.mp3")
+  PROGMEM("http://icy.unitedradio.it/Subasio.mp3"),
+  PROGMEM("http://streaming.controradio.it:8190/;?type=http&nocache=76494"), //Controradio 
 };
+
+SemaphoreHandle_t mutex_updating;
 void setup() {
 #ifdef DEBUGGAME  
     Serial.begin(115200);
     while (!Serial) {
     ;
     }
+    mutex_updating = xSemaphoreCreateMutex();
 #endif    
     LOGLEVEL_AUDIODRIVER = AudioDriverError;
     logSuSeriale(F("*****************************\n"));
@@ -188,10 +193,17 @@ void setup() {
 //  audio.connecttoFS(SD_MMC, "/test.wav"); // SD_MMC
 //  audio.connecttoFS(SPIFFS, "/test.wav"); // SPIFFS
 }
-
+// Variable to store the HTTP request
+String header;
+// Current time
+unsigned long currentTime = millis();
+// Previous time
+unsigned long previousTime = 0; 
+// Define timeout time in milliseconds (example: 2000ms = 2s)
+const long timeoutTime = 2000;
 void loop()
 {
-    
+    static uint8_t ui8ConnTentative = 0;
     switch (currentState)
     {
     case STATE_INIT:
@@ -210,10 +222,125 @@ void loop()
         {
             Serial.println("Move to STATE_RADIO!");
             audioInit(stationUrls[0]);
+            ui8ConnTentative = 0;
             currentState = STATE_RADIO;
         }
-        yield();
+        else
+        {
+            ui8ConnTentative++;
+            yield();
+        }
+        if (ui8ConnTentative > 10)
+        {
+            logSuSeriale(F("Filed to connect move to ap mode\n"));
+            currentState = STATE_INITAP; //file to connect move to ap mode servng a page for inpunt credential....
+        }
         break;
+    case STATE_INITAP:
+    {
+        logSuSeriale(F("AP MODE state...\n"));
+        server = new WiFiServer(80);
+        WiFi.disconnect();
+        WiFi.mode(WIFI_AP);
+        IPAddress Ip(192, 168, 6, 9);
+        IPAddress NMask(255, 255, 255, 0);
+        WiFi.softAPConfig(Ip, Ip, NMask);
+        WiFi.softAP("ESP32_MRMR", "password");
+        server->begin();
+        currentState = STATE_AP;
+        break;
+    }
+    case STATE_AP:
+    {
+        delay(500);
+        IPAddress myIP = WiFi.softAPIP();
+        //Serial.println(myIP);
+        WiFiClient client = server->available(); 
+        if (client)
+        {
+            currentTime = millis();
+            previousTime = currentTime;
+            String currentLine = "";                // make a String to hold incoming data from the client
+            while (client.connected() && currentTime - previousTime <= timeoutTime) {  // loop while the client's connected
+            currentTime = millis();
+            if (client.available()) {             // if there's bytes to read from the client,
+                char c = client.read();             // read a byte, then
+                header += c;
+                if (c == '\n') {                    // if the byte is a newline character
+                // if the current line is blank, you got two newline characters in a row.
+                // that's the end of the client HTTP request, so send a response:
+                //Serial.println(header);
+                if (currentLine.length() == 0) {
+                    // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
+                    // and a content-type so the client knows what's coming, then a blank line:
+                    client.println("HTTP/1.1 200 OK");
+                    client.println("Content-type:text/html");
+                    client.println("Connection: close");
+                    client.println();
+                    // GET /?SSID=AuthorizedGuest&SECRET_KEY=password HTTP/1.1
+                    int index = header.indexOf("/?SSID=");
+                    if (index)
+                    {
+                        String strAppo = header.substring(index + 7);
+                        int iAppo = strAppo.indexOf("&");
+                        String strSSID = strAppo.substring(0, iAppo);
+                        Serial.println(strSSID);
+                    }
+                    
+                    /*
+                    // turns the GPIOs on and off
+                    if (header.indexOf("GET /26/on") >= 0) {
+                    Serial.println("GPIO 26 on");
+                    output26State = "on";
+                    digitalWrite(output26, HIGH);
+                    } else if (header.indexOf("GET /26/off") >= 0) {
+                    Serial.println("GPIO 26 off");
+                    output26State = "off";
+                    digitalWrite(output26, LOW);
+                    } else if (header.indexOf("GET /27/on") >= 0) {
+                    Serial.println("GPIO 27 on");
+                    output27State = "on";
+                    digitalWrite(output27, HIGH);
+                    } else if (header.indexOf("GET /27/off") >= 0) {
+                    Serial.println("GPIO 27 off");
+                    output27State = "off";
+                    digitalWrite(output27, LOW);
+                    }
+                    */
+                    // Display the HTML web page
+                    client.println("<!DOCTYPE html><html>");
+                    // Web Page Heading
+                    client.println("<body><h1>ESP32 Web Server</h1>");
+                    
+                    // Display current state, and ON/OFF buttons for GPIO 26  
+                    client.println("<hr/><form  method=\"get\"><label for=\"fname\">SSID</label><br>");
+                    client.println("<input type=\"text\" id=\"SSID\" name=\"SSID\" value=\"SSID\"><br>");
+                    client.println("<label for=\"lname\">Secret Key:</label><br><input type=\"password\" id=\"SECRET_KEY\" name=\"SECRET_KEY\" value=\"password\"><br><br>");
+                    client.println("<input type=\"submit\" value=\"Submit\"></form>");
+                    client.println("</body></html>");
+                    
+                    // The HTTP response ends with another blank line
+                    client.println();
+                    // Break out of the while loop
+                    break;
+                } else { // if you got a newline, then clear currentLine
+                    currentLine = "";
+                }
+                } else if (c != '\r') {  // if you got anything else but a carriage return character,
+                currentLine += c;      // add it to the end of the currentLine
+                }
+            }
+            }
+            // Clear the header variable
+            header = "";
+            // Close the connection
+            client.stop();
+            Serial.println("Client disconnected.");
+            Serial.println("");
+        }
+        
+        break;
+    }
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
             if ((millis() - iUltimaAccensioneDisplay) > iTimeoutDisplay)
@@ -502,10 +629,10 @@ void audio_eof_speech(const char*info)
 void avrc_metadata_callback(uint8_t data1, const uint8_t *data2) {
   //logSuSeriale(F("AVRC metadata rsp: attribute id 0x%x, %s\n"), data1, data2);
 }
-SemaphoreHandle_t mutex_updating;
+
 void logSuSeriale(const __FlashStringHelper *frmt, ...) {
 #ifdef DEBUGGAME
-//xSemaphoreTakeRecursive(mutex_updating, portMAX_DELAY);
+  xSemaphoreTake(mutex_updating, portMAX_DELAY);
   va_list args;
   va_start(args, frmt);
   static uint const MSG_BUF_SIZE = 256;
@@ -513,6 +640,6 @@ void logSuSeriale(const __FlashStringHelper *frmt, ...) {
   vsnprintf_P(msg_buf, MSG_BUF_SIZE, (const char *)frmt, args);
   Serial.print(msg_buf);
   va_end(args);
-  // xSemaphoreGive(mutex_updating);
+  xSemaphoreGive(mutex_updating);
 #endif
 }
