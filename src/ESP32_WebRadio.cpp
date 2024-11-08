@@ -6,6 +6,7 @@
 #include <hd44780.h>                       // main hd44780 header
 #include <hd44780ioClass/hd44780_I2Cexp.h> // i2c expander i/o class header
 #include "BluetoothA2DPSink.h"
+#include "bledefinitions.h"
 // WiFi SSID and PWD definition...
 #include "mysecret.h"
 hd44780_I2Cexp lcd; // declare lcd object: auto locate & auto config expander chip
@@ -23,7 +24,7 @@ WiFiServer *server;
 
 //Audio task definitions
 TaskHandle_t AudioTaskHandle;
-enum uieCommand{ SET_VOLUME, GET_VOLUME, NEXT_STATION, PREV_STATION, STOP_SONG};
+enum uieCommand{ SET_VOLUME, GET_VOLUME, NEXT_STATION, PREV_STATION, CHANGE_MODE, SET_BASS, SEET_MID, SET_HIGH};
 
 struct audioMessage{
     uieCommand  cmd;
@@ -37,7 +38,10 @@ struct audioMessage{
   audioRxTaskMessage,//received from audiotask sent by loop
   audioTxTaskMessage, //Sent from audiotask to loop
   audioRxMessage; //received from loop sent by audiotask
-
+enum enButtonMode{
+    BTN_MODE_VOLUME,
+    BTN_MODE_EQUALIZER
+} btnMode;
 
 QueueHandle_t LoopToAudioQueue = NULL;
 QueueHandle_t AudioToLoopQueue = NULL;
@@ -46,26 +50,27 @@ QueueHandle_t AudioToLoopQueue = NULL;
 #define I2S_DOUT      26 //35
 #define I2S_BCLK      27
 #define I2S_LRC       25
+#define I2S_MCLK      0
 Audio *audio;
 //OneButton KEY_1(36), KEY_2(13), KEY_3(19), KEY_4(23), KEY_5(18), *KEY_6;//(5);
 OneButton *KEY_1, *KEY_2, *KEY_3, *KEY_4, *KEY_5, *KEY_6;
 enum MachineStates {
     STATE_INIT,
     STATE_WAITWIFICONNECTION,
-    STATE_INITAP,
-    STATE_AP,
+    STATE_INITBLE,
+    STATE_WIFICONF,
     STATE_RADIO,
     STATE_INITA2DP,
     STATE_BLUETOOTSPEAKER
 };
 MachineStates currentState = STATE_INIT;
-unsigned int iInitialVolume = 25;
+unsigned int iInitialVolume = 50;
 
 void nextStation();
 void prevStation();
 void volumeDown();
 void volumeUp();
-void setTone();
+void setBtnMode();
 void printOnLcd(int idx, const char *info = NULL);
 void changeMode();
 void avrc_metadata_callback(uint8_t data1, const uint8_t *data2);
@@ -73,12 +78,12 @@ void logSuSeriale(const __FlashStringHelper *frmt, ...);
 void audioInit(const char * urlStation);
 void audioTask(void *parameter);
 
-#define IDX_LAST_STATIONS 9
+#define IDX_LAST_STATIONS 14
 static int i_stationIdx = 0;
 const char *stationsName[] = {
   PROGMEM("Virgin radio"),
-  PROGMEM("Virgin rock ottanta"),
-  PROGMEM("Virgin rock novanta"),
+  PROGMEM("Virgin rock 80"),
+  PROGMEM("Virgin rock 90"),
   PROGMEM("Virgin classic rock"),
   PROGMEM("Virgin radio queen"),
   PROGMEM("Virgin radio AC-DC"),
@@ -133,6 +138,7 @@ void setup() {
     logSuSeriale(F("ESP32 Chip model:  %s Rev %d\n"), ESP.getChipModel(), ESP.getChipRevision());
     logSuSeriale(F("SdkVersion:        %s\n"), ESP.getSdkVersion());
     logSuSeriale(F("*****************************\n"));
+    btnMode = BTN_MODE_VOLUME;
     CodecConfig cfg;
     cfg.input_device = audio_driver::ADC_INPUT_NONE;
     cfg.output_device = audio_driver::DAC_OUTPUT_ALL;
@@ -172,7 +178,7 @@ void setup() {
     KEY_4->attachClick(volumeUp);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 5);
     KEY_5 = new OneButton(pins.value().pin);    
-    KEY_5->attachClick(setTone);
+    KEY_5->attachClick(setBtnMode);
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 6);
     KEY_6 = new OneButton(pins.value().pin);
     KEY_6->attachClick(changeMode);
@@ -201,6 +207,35 @@ unsigned long currentTime = millis();
 unsigned long previousTime = 0; 
 // Define timeout time in milliseconds (example: 2000ms = 2s)
 const long timeoutTime = 2000;
+/*
+int readFile(const char * path) {
+  logSuSeriale(F("Reading file: %s\n"), path);
+  File file = 
+  if (!file) {
+    logSuSeriale(F("Failed to open file for reading"));
+    return 1;
+  }
+  sTheSsid = file.readStringUntil('\n'));
+  sThePwd = file.readStringUntil('\n');
+  logSuSeriale(F("SSID:%s\n"), sTheSsid.c_str());
+  logSuSeriale(F("KEY:%s\n"), sThePwd.c_str());
+  file.close();
+  return 0;
+}
+int writeFile(const char * path) {
+  logSuSeriale(F("Writing file\n"));
+
+  File file = 
+  if (!file) {
+    logSuSeriale(F("Failed to open file for writing\n"));
+    return 1;
+  }
+  file.println(sTheSsid.c_str());
+  file.println(sThePwd.c_str());
+  delay(2000); // Make sure the CREATE and LASTWRITE times are different
+  file.close();
+  return 0;
+}*/
 void loop()
 {
     static uint8_t ui8ConnTentative = 0;
@@ -208,11 +243,11 @@ void loop()
     {
     case STATE_INIT:
         Serial.println("Mode init!");
+        WiFi.disconnect(true, true);
         WiFi.enableSTA(true); //Needed to switch on WIFI?
         WiFi.mode(WIFI_STA);
         WiFi.setTxPower(WIFI_POWER_7dBm);
-        WiFi.begin(ssid_1, password_1);
-        iInitialVolume = 25;
+        WiFi.begin(sSSID.c_str(), sPwd.c_str());
         AudioKitEs8388V1.setVolume(iInitialVolume);
         currentState = STATE_WAITWIFICONNECTION;
         break;
@@ -221,125 +256,52 @@ void loop()
         if (WiFi.status() == WL_CONNECTED)
         {
             Serial.println("Move to STATE_RADIO!");
-            audioInit(stationUrls[0]);
+            audioInit(stationUrls[i_stationIdx]);
             ui8ConnTentative = 0;
             currentState = STATE_RADIO;
         }
         else
         {
             ui8ConnTentative++;
-            yield();
+            delay(100);
         }
-        if (ui8ConnTentative > 10)
+        if (ui8ConnTentative > 100)
         {
             logSuSeriale(F("Filed to connect move to ap mode\n"));
-            currentState = STATE_INITAP; //file to connect move to ap mode servng a page for inpunt credential....
+            ui8ConnTentative = 0; //reset tentative counter...
+            currentState = STATE_INITBLE; //file to connect move to ap mode servng a page for inpunt credential....
         }
         break;
-    case STATE_INITAP:
+    case STATE_INITBLE:
     {
-        logSuSeriale(F("AP MODE state...\n"));
-        server = new WiFiServer(80);
-        WiFi.disconnect();
-        WiFi.mode(WIFI_AP);
-        IPAddress Ip(192, 168, 6, 9);
-        IPAddress NMask(255, 255, 255, 0);
-        WiFi.softAPConfig(Ip, Ip, NMask);
-        WiFi.softAP("ESP32_MRMR", "password");
-        server->begin();
-        currentState = STATE_AP;
+        BLEDevice::init("ESP32RADIO_WIFICONFIGURATOR");
+        BLEServer *pServer = BLEDevice::createServer();
+        BLEService *pService = pServer->createService(UUID_SERVICE_MYWIFI);
+        pServer->setCallbacks(new MyServerCallbacks());
+        BLECharacteristic *pCharacteristicSsid = pService->createCharacteristic(UUID_CHARACTERISTIC_MYWIFI_SSID, BLECharacteristic::PROPERTY_WRITE);
+        BLECharacteristic *pCharacteristicPwd = pService->createCharacteristic(UUID_CHARACTERISTIC_MYWIFI_PASS, BLECharacteristic::PROPERTY_WRITE);
+        pCharacteristicSsid->setCallbacks(new SSID_Callbacks());
+        pCharacteristicPwd->setCallbacks(new PWD_Callbacks());
+        //pCharacteristic->setValue("Hello World");
+        pService->start();
+
+        BLEAdvertising *pAdvertising = pServer->getAdvertising();
+        pAdvertising->start();        
+        currentState = STATE_WIFICONF;
         break;
     }
-    case STATE_AP:
+    case STATE_WIFICONF:
     {
-        delay(500);
-        IPAddress myIP = WiFi.softAPIP();
-        //Serial.println(myIP);
-        WiFiClient client = server->available(); 
-        if (client)
-        {
-            currentTime = millis();
-            previousTime = currentTime;
-            String currentLine = "";                // make a String to hold incoming data from the client
-            while (client.connected() && currentTime - previousTime <= timeoutTime) {  // loop while the client's connected
-            currentTime = millis();
-            if (client.available()) {             // if there's bytes to read from the client,
-                char c = client.read();             // read a byte, then
-                header += c;
-                if (c == '\n') {                    // if the byte is a newline character
-                // if the current line is blank, you got two newline characters in a row.
-                // that's the end of the client HTTP request, so send a response:
-                //Serial.println(header);
-                if (currentLine.length() == 0) {
-                    // HTTP headers always start with a response code (e.g. HTTP/1.1 200 OK)
-                    // and a content-type so the client knows what's coming, then a blank line:
-                    client.println("HTTP/1.1 200 OK");
-                    client.println("Content-type:text/html");
-                    client.println("Connection: close");
-                    client.println();
-                    // GET /?SSID=AuthorizedGuest&SECRET_KEY=password HTTP/1.1
-                    int index = header.indexOf("/?SSID=");
-                    if (index)
-                    {
-                        String strAppo = header.substring(index + 7);
-                        int iAppo = strAppo.indexOf("&");
-                        String strSSID = strAppo.substring(0, iAppo);
-                        Serial.println(strSSID);
-                    }
-                    
-                    /*
-                    // turns the GPIOs on and off
-                    if (header.indexOf("GET /26/on") >= 0) {
-                    Serial.println("GPIO 26 on");
-                    output26State = "on";
-                    digitalWrite(output26, HIGH);
-                    } else if (header.indexOf("GET /26/off") >= 0) {
-                    Serial.println("GPIO 26 off");
-                    output26State = "off";
-                    digitalWrite(output26, LOW);
-                    } else if (header.indexOf("GET /27/on") >= 0) {
-                    Serial.println("GPIO 27 on");
-                    output27State = "on";
-                    digitalWrite(output27, HIGH);
-                    } else if (header.indexOf("GET /27/off") >= 0) {
-                    Serial.println("GPIO 27 off");
-                    output27State = "off";
-                    digitalWrite(output27, LOW);
-                    }
-                    */
-                    // Display the HTML web page
-                    client.println("<!DOCTYPE html><html>");
-                    // Web Page Heading
-                    client.println("<body><h1>ESP32 Web Server</h1>");
-                    
-                    // Display current state, and ON/OFF buttons for GPIO 26  
-                    client.println("<hr/><form  method=\"get\"><label for=\"fname\">SSID</label><br>");
-                    client.println("<input type=\"text\" id=\"SSID\" name=\"SSID\" value=\"SSID\"><br>");
-                    client.println("<label for=\"lname\">Secret Key:</label><br><input type=\"password\" id=\"SECRET_KEY\" name=\"SECRET_KEY\" value=\"password\"><br><br>");
-                    client.println("<input type=\"submit\" value=\"Submit\"></form>");
-                    client.println("</body></html>");
-                    
-                    // The HTTP response ends with another blank line
-                    client.println();
-                    // Break out of the while loop
-                    break;
-                } else { // if you got a newline, then clear currentLine
-                    currentLine = "";
-                }
-                } else if (c != '\r') {  // if you got anything else but a carriage return character,
-                currentLine += c;      // add it to the end of the currentLine
-                }
-            }
-            }
-            // Clear the header variable
-            header = "";
-            // Close the connection
-            client.stop();
-            Serial.println("Client disconnected.");
-            Serial.println("");
-        }
-        
-        break;
+       if (sTheSsid.length() && sThePwd.length() && !deviceConnected)
+       {
+            Serial.println(sTheSsid.c_str());
+            Serial.println(sThePwd.c_str());
+            BLEDevice::deinit(true);
+           // writeFile("/config.bin");
+            ESP.restart();
+       }
+       //currentState = STATE_INIT;        
+       break;
     }
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
@@ -356,6 +318,7 @@ void loop()
             cfg.pin_bck = I2S_BCLK;
             cfg.pin_ws = I2S_LRC;
             cfg.pin_data = I2S_DOUT;
+            cfg.pin_mck = I2S_MCLK;
             i2s.begin(cfg);
             //a2dp_sink->set_pin_config(my_pin_config);
             a2dp_sink->set_avrc_metadata_attribute_mask(ESP_AVRC_MD_ATTR_TITLE); //| ESP_AVRC_MD_ATTR_PLAYING_TIME);
@@ -378,16 +341,20 @@ void loop()
     KEY_5->tick();
     KEY_6->tick();
 }
-void setTone()
+
+void setBtnMode()
 {
-    //etTone (int8_t gainLowPass, int8_t gainBandPass, int8_t gainHighPass);
-    //possible values ​​are -40 ... 6 [dB]. The first tests were successful.
+    if (btnMode == BTN_MODE_VOLUME)
+        btnMode = BTN_MODE_EQUALIZER;
+    else
+        btnMode = BTN_MODE_VOLUME;
+    return;
     static int iToneStatus = 0;
     switch (iToneStatus)
     {
         case 0:
             // statements
-            audio->setTone(0, -12, -24);
+            audio->setTone(2, 0, -1);
             Serial.printf("%d\n", iToneStatus);
             iToneStatus = 1;
             break;
@@ -406,9 +373,11 @@ void changeMode()
 {
     if (currentState != STATE_BLUETOOTSPEAKER) //Not state BTSpeaker then move to it
     {
+        logSuSeriale(F("Changing state\n"));
         currentState = STATE_INITA2DP;
         WiFi.disconnect(true, true);
-        //todo: Stop audio task and clean
+        audioTxMessage.cmd = CHANGE_MODE;
+        xQueueSend(LoopToAudioQueue, &audioTxMessage, portMAX_DELAY);
         delay(1000);
     }
     else //BT speaker mode so move to radio
@@ -417,7 +386,8 @@ void changeMode()
         a2dp_sink->disconnect();
         a2dp_sink->end(true);
         delete a2dp_sink;
-        delay(1000);
+        ESP.restart();
+
     }
 }
 void volumeDown()
@@ -429,10 +399,17 @@ void volumeDown()
 }
 void volumeUp()
 {
-    //audio.setTone(10, -10,-10);
-    if (AudioKitEs8388V1.getVolume() < 100)
-        iInitialVolume += 5;
-    AudioKitEs8388V1.setVolume(iInitialVolume);
+    if (btnMode == BTN_MODE_VOLUME)
+    {
+        if (AudioKitEs8388V1.getVolume() < 100)
+            iInitialVolume += 5;
+        AudioKitEs8388V1.setVolume(iInitialVolume);
+    }
+    else
+    {
+        audioTxMessage.cmd = SET_BASS;
+        xQueueSend(LoopToAudioQueue, &audioTxMessage, portMAX_DELAY);
+    }
     printOnLcd(i_stationIdx);
 }
 void prevStation()
@@ -496,14 +473,16 @@ void audioInit(const char * urlStation)
 {
     CreateQueues();
     audio = new Audio;
-    audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, 0);
-    audio->setVolume(35);
-    audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
+    audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, I2S_MCLK);
+    //audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
     audio->setVolumeSteps(35);
     audio->setVolume(35); // due to call to upper call 0...35!
+//    values can be between -40 ... +6 (dB)
+
+    audio->setTone(6, 0, -3);
     if (!audio->connecttohost(urlStation))
     {
-    ESP.restart();
+        ESP.restart();
     }
     // aac
     logSuSeriale(F("init %s\n"),urlStation);
@@ -524,25 +503,24 @@ void audioTask(void *parameter)
   {
     if(xQueueReceive(LoopToAudioQueue, &audioRxTaskMessage, 1) == pdPASS)
     {
-      if (audioRxTaskMessage.cmd == STOP_SONG)
+      if (audioRxTaskMessage.cmd == NEXT_STATION || audioRxTaskMessage.cmd == PREV_STATION)
       {
-        logSuSeriale(F("Stop song received\n"));
+        audio->connecttospeech(audioRxTaskMessage.txt2, "it");
+      }
+      if (audioRxTaskMessage.cmd == CHANGE_MODE)
+      {
         audio->stopSong();
         break;
       }
-      
-      if (audioRxTaskMessage.cmd == NEXT_STATION || audioRxTaskMessage.cmd == PREV_STATION)
+      if (audioRxTaskMessage.cmd == SET_BASS)
       {
-        if (!audio->connecttospeech(audioRxTaskMessage.txt2, "it"))
-        {
-          ESP.restart();
-        }
+        audio->setTone(0, 0, -3);
       }
     }
-
     audio->loop();
     vTaskDelay(7); //Necessario??
   }
+  logSuSeriale(F("Deleting audio task....\n"));
   vTaskDelete( NULL );
 }
 
@@ -600,7 +578,7 @@ void printOnLcd(int idx, const char* info)
 } 
 void audio_info(const char*info)
 {
-   // logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
+   logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
 }
 
 void audio_showstreamtitle(const char* info)
@@ -621,8 +599,9 @@ void audio_commercial(const char* info)
 void audio_eof_speech(const char*info)
 {
     //Serial.println("End of speech!");
-    logSuSeriale(F("End of speech %s\n"), audioRxTaskMessage.txt2);
-    audio->connecttohost(audioRxTaskMessage.txt1);
+    logSuSeriale(F("End of speech %s-%s\n"), audioRxTaskMessage.txt2, audioRxTaskMessage.txt1);
+    if(!audio->connecttohost(audioRxTaskMessage.txt1))
+        ESP.restart();
 }
 
 
