@@ -8,7 +8,7 @@
 #include "BluetoothA2DPSink.h"
 #include "bledefinitions.h"
 // WiFi SSID and PWD definition...
-#include "mysecret.h"
+
 hd44780_I2Cexp lcd; // declare lcd object: auto locate & auto config expander chip
 // LCD geometry
 const int LCD_COLS = 20;
@@ -77,7 +77,7 @@ void avrc_metadata_callback(uint8_t data1, const uint8_t *data2);
 void logSuSeriale(const __FlashStringHelper *frmt, ...);
 void audioInit(const char * urlStation);
 void audioTask(void *parameter);
-
+int readFile(const char * path);
 #define IDX_LAST_STATIONS 14
 static int i_stationIdx = 0;
 const char *stationsName[] = {
@@ -145,9 +145,10 @@ void setup() {
     cfg.i2s.bits = audio_driver::BIT_LENGTH_16BITS;
     cfg.i2s.rate = audio_driver::RATE_44K;
     cfg.i2s.fmt = audio_driver::I2S_NORMAL;
+    cfg.sd_active = false;
     // get current pin value 
     auto i2c_opt = AudioKitEs8388V1.getPins().getI2CPins(PinFunction::CODEC);
-
+    
     if (i2c_opt)
     {   //Setting Wire1 for internal use, Wire so is available on pin 21-22 for external use. Lcd in this case
         auto i2c = i2c_opt.value();
@@ -158,18 +159,36 @@ void setup() {
             logSuSeriale(F("Failed to set Wire1 for internal use!"));
         }
     }
-    
-    AudioKitEs8388V1.begin(cfg); 
+ 
+/*        // define custom SPI pins
+    SPI.begin(14, 2, 15, 13);
 
-    
+    // intialize SD
+    if(!SD.begin(13)){   
+        logSuSeriale(F("SD.Begin failed...\n"));
+        //return;
+    }
+    readFile("/config.bin");
+*/
+    AudioKitEs8388V1.begin(cfg);    
+    auto spi_opt = AudioKitEs8388V1.getPins().getSPIPins(PinFunction::SD);
+    if (spi_opt)
+    {
+        auto spi = spi_opt.value();
+        
+        if (!SD.begin(spi.cs, *(spi.p_spi)))
+            logSuSeriale(F("SD.Begin failed...%d\n"), spi.cs);
+    }
+    //readFile("/config.bin");
     /*auto pinne = pins.value();
     int i = pinne.pin;*/
     auto pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 1);
     KEY_1 = new OneButton(pins.value().pin);
     KEY_1->attachClick(prevStation);
-    pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 2);
+    KEY_1->attachDoubleClick(nextStation);
+   /* pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 2);
     KEY_2 = new OneButton(pins.value().pin);    
-    KEY_2->attachClick(nextStation);
+    KEY_2->attachClick(nextStation);*/
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 3);
     KEY_3 = new OneButton(pins.value().pin);    
     KEY_3->attachClick(volumeDown);
@@ -207,47 +226,61 @@ unsigned long currentTime = millis();
 unsigned long previousTime = 0; 
 // Define timeout time in milliseconds (example: 2000ms = 2s)
 const long timeoutTime = 2000;
-/*
+
 int readFile(const char * path) {
-  logSuSeriale(F("Reading file: %s\n"), path);
-  File file = 
+  logSuSeriale(F("Reading file\n"));
+  memset(ssid, 0, 32);
+  memset(pswd, 0, 63);
+  File file = SD.open(path, "r");
   if (!file) {
     logSuSeriale(F("Failed to open file for reading"));
     return 1;
   }
-  sTheSsid = file.readStringUntil('\n'));
-  sThePwd = file.readStringUntil('\n');
-  logSuSeriale(F("SSID:%s\n"), sTheSsid.c_str());
-  logSuSeriale(F("KEY:%s\n"), sThePwd.c_str());
+  if (file.available())
+  {
+    strcpy(ssid, (char*)file.readStringUntil('\r').c_str());
+  }
+  file.readStringUntil('\n');
+  //ssid[15]=0;
+  if (file.available())
+  {
+    strcpy(pswd, (char*)file.readStringUntil('\r').c_str());
+  }
+  file.readStringUntil('\n');
+  //pswd[16]=0;
   file.close();
   return 0;
 }
 int writeFile(const char * path) {
   logSuSeriale(F("Writing file\n"));
 
-  File file = 
+  File file = SD.open("/config.bin", "w");
   if (!file) {
     logSuSeriale(F("Failed to open file for writing\n"));
     return 1;
   }
-  file.println(sTheSsid.c_str());
-  file.println(sThePwd.c_str());
+  file.println(ssid);
+  file.println(pswd);
   delay(2000); // Make sure the CREATE and LASTWRITE times are different
   file.close();
   return 0;
-}*/
+}
+
 void loop()
 {
     static uint8_t ui8ConnTentative = 0;
     switch (currentState)
     {
     case STATE_INIT:
-        Serial.println("Mode init!");
+        logSuSeriale(F("Mode init!"));
         WiFi.disconnect(true, true);
         WiFi.enableSTA(true); //Needed to switch on WIFI?
         WiFi.mode(WIFI_STA);
         WiFi.setTxPower(WIFI_POWER_7dBm);
-        WiFi.begin(sSSID.c_str(), sPwd.c_str());
+        readFile("/config.bin");
+        logSuSeriale(F(ssid));
+        logSuSeriale(F(pswd));
+        WiFi.begin(ssid, pswd);
         AudioKitEs8388V1.setVolume(iInitialVolume);
         currentState = STATE_WAITWIFICONNECTION;
         break;
@@ -255,7 +288,7 @@ void loop()
         //Serial.println("Mode STATE_WAITWIFICONNECTION!");
         if (WiFi.status() == WL_CONNECTED)
         {
-            Serial.println("Move to STATE_RADIO!");
+            logSuSeriale(F("Move to STATE_RADIO!"));
             audioInit(stationUrls[i_stationIdx]);
             ui8ConnTentative = 0;
             currentState = STATE_RADIO;
@@ -266,14 +299,15 @@ void loop()
             delay(100);
         }
         if (ui8ConnTentative > 100)
-        {
-            logSuSeriale(F("Filed to connect move to ap mode\n"));
+        {        
+            logSuSeriale(F("Failed to connect move to ap mode\n"));
             ui8ConnTentative = 0; //reset tentative counter...
             currentState = STATE_INITBLE; //file to connect move to ap mode servng a page for inpunt credential....
         }
         break;
     case STATE_INITBLE:
     {
+        WiFi.disconnect(true, true);
         BLEDevice::init("ESP32RADIO_WIFICONFIGURATOR");
         BLEServer *pServer = BLEDevice::createServer();
         BLEService *pService = pServer->createService(UUID_SERVICE_MYWIFI);
@@ -286,16 +320,18 @@ void loop()
         pService->start();
 
         BLEAdvertising *pAdvertising = pServer->getAdvertising();
-        pAdvertising->start();        
+        pAdvertising->start();
+        memset(ssid, 0, 32);
+        memset(pswd, 0, 63);
         currentState = STATE_WIFICONF;
         break;
     }
     case STATE_WIFICONF:
     {
-       if (sTheSsid.length() && sThePwd.length() && !deviceConnected)
+       if (strlen(ssid) && strlen(pswd) && !deviceConnected)
        {
-            Serial.println(sTheSsid.c_str());
-            Serial.println(sThePwd.c_str());
+            logSuSeriale(F(ssid));
+            logSuSeriale(F(pswd));
             BLEDevice::deinit(true);
            // writeFile("/config.bin");
             ESP.restart();
@@ -325,7 +361,7 @@ void loop()
             a2dp_sink->set_avrc_metadata_callback(avrc_metadata_callback);
             a2dp_sink->start("ESP32_Speaker");
             //AudioKitEs8388V1.setInputVolume(100);
-            Serial.println("Mode bluetooth speaker");
+            logSuSeriale(F("Mode bluetooth speaker"));
             iInitialVolume = 70;
             AudioKitEs8388V1.setVolume(iInitialVolume);
             currentState = STATE_BLUETOOTSPEAKER;
@@ -335,7 +371,7 @@ void loop()
         break;
     }
     KEY_1->tick();
-    KEY_2->tick();
+    //KEY_2->tick();
     KEY_3->tick();
     KEY_4->tick();
     KEY_5->tick();
@@ -355,12 +391,12 @@ void setBtnMode()
         case 0:
             // statements
             audio->setTone(2, 0, -1);
-            Serial.printf("%d\n", iToneStatus);
+            logSuSeriale(F("%d\n"), iToneStatus);
             iToneStatus = 1;
             break;
         case 1:
             audio->setTone(0, 0, 0);
-            Serial.printf("%d\n", iToneStatus);
+            logSuSeriale(F("%d\n"), iToneStatus);
             iToneStatus = 0;
             break;
         default:
@@ -420,7 +456,7 @@ void prevStation()
             i_stationIdx--;
             if (i_stationIdx < 0)
                 i_stationIdx = IDX_LAST_STATIONS;
-            Serial.printf("Station %d-%s\n", i_stationIdx, stationsName[i_stationIdx]);
+            logSuSeriale(F("Station %d-%s\n"), i_stationIdx, stationsName[i_stationIdx]);
             audioTxMessage.cmd = PREV_STATION;
             audioTxMessage.txt1 = stationUrls[i_stationIdx];
             audioTxMessage.txt2 = stationsName[i_stationIdx];
@@ -440,7 +476,7 @@ void prevStation()
 } 
 void nextStation()
 {
-    Serial.println("NextStation");
+    logSuSeriale(F("NextStation"));
     switch (currentState)
     { 
         case STATE_RADIO:  
@@ -448,7 +484,7 @@ void nextStation()
                 i_stationIdx++;
             else
                 i_stationIdx = 0;
-            Serial.printf("Station %d-%s\n", i_stationIdx, stationsName[i_stationIdx]);
+            logSuSeriale(F("Station %d-%s\n"), i_stationIdx, stationsName[i_stationIdx]);
             audioTxMessage.cmd = NEXT_STATION;
             audioTxMessage.value1 = i_stationIdx;
             audioTxMessage.txt1 = stationUrls[i_stationIdx];
@@ -578,18 +614,18 @@ void printOnLcd(int idx, const char* info)
 } 
 void audio_info(const char*info)
 {
-   logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
+   //logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
 }
 
 void audio_showstreamtitle(const char* info)
 {
     if (strlen(info))
-        Serial.printf("showstreamtitle %s-%s\n", info, audio->getCodecname());
+        logSuSeriale(F("showstreamtitle %s-%s\n"), info, audio->getCodecname());
     //printOnLcd(i_stationIdx, info);
 }
 void audio_icydescription(const char* info)
 {
-    Serial.printf("icydescription %s\n", info);
+    logSuSeriale(F("icydescription %s\n"), info);
 }
 void audio_commercial(const char* info)
 {
