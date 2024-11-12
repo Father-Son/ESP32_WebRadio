@@ -128,7 +128,7 @@ void setup() {
     }
     mutex_updating = xSemaphoreCreateMutex();
 #endif    
-    LOGLEVEL_AUDIODRIVER = AudioDriverInfo;//AudioDriverError;
+    LOGLEVEL_AUDIODRIVER = 2;
     logSuSeriale(F("*****************************\n"));
     logSuSeriale(F("Total Falsh: %d\n"), ESP.getFlashChipSize());
     logSuSeriale(F("Total heap: %d\n"), ESP.getHeapSize());
