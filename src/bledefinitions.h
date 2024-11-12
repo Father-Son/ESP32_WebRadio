@@ -39,7 +39,7 @@ class PWD_Callbacks : public BLECharacteristicCallbacks {
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *pServer) {
     deviceConnected = true;
-    BLEDevice::startAdvertising();
+    //BLEDevice::startAdvertising();
   };
 
   void onDisconnect(BLEServer *pServer) {

@@ -128,7 +128,7 @@ void setup() {
     }
     mutex_updating = xSemaphoreCreateMutex();
 #endif    
-    LOGLEVEL_AUDIODRIVER = AudioDriverError;
+    LOGLEVEL_AUDIODRIVER = AudioDriverInfo;//AudioDriverError;
     logSuSeriale(F("*****************************\n"));
     logSuSeriale(F("Total Falsh: %d\n"), ESP.getFlashChipSize());
     logSuSeriale(F("Total heap: %d\n"), ESP.getHeapSize());
@@ -145,7 +145,7 @@ void setup() {
     cfg.i2s.bits = audio_driver::BIT_LENGTH_16BITS;
     cfg.i2s.rate = audio_driver::RATE_44K;
     cfg.i2s.fmt = audio_driver::I2S_NORMAL;
-    cfg.sd_active = false;
+    cfg.sd_active = true; //false;
     // get current pin value 
     auto i2c_opt = AudioKitEs8388V1.getPins().getI2CPins(PinFunction::CODEC);
     
@@ -252,18 +252,18 @@ int readFile(const char * path) {
   return 0;
 }
 int writeFile(const char * path) {
-  logSuSeriale(F("Writing file\n"));
-
-  File file = SD.open("/config.bin", "w");
-  if (!file) {
+    logSuSeriale(F("Writing file\n"));
+    SD.remove(path);
+    File file = SD.open(path, "w", true);
+    if (!file) {
     logSuSeriale(F("Failed to open file for writing\n"));
     return 1;
-  }
-  file.println(ssid);
-  file.println(pswd);
-  delay(2000); // Make sure the CREATE and LASTWRITE times are different
-  file.close();
-  return 0;
+    }
+    file.println(ssid);
+    file.println(pswd);
+    delay(2000); // Make sure the CREATE and LASTWRITE times are different
+    file.close();
+    return 0;
 }
 
 void loop()
@@ -278,8 +278,8 @@ void loop()
         WiFi.mode(WIFI_STA);
         WiFi.setTxPower(WIFI_POWER_7dBm);
         readFile("/config.bin");
-        logSuSeriale(F(ssid));
-        logSuSeriale(F(pswd));
+        logSuSeriale(F("%s\n"), ssid);
+        logSuSeriale(F("%s\n"), pswd);
         WiFi.begin(ssid, pswd);
         AudioKitEs8388V1.setVolume(iInitialVolume);
         currentState = STATE_WAITWIFICONNECTION;
@@ -288,7 +288,7 @@ void loop()
         //Serial.println("Mode STATE_WAITWIFICONNECTION!");
         if (WiFi.status() == WL_CONNECTED)
         {
-            logSuSeriale(F("Move to STATE_RADIO!"));
+            logSuSeriale(F("Move to STATE_RADIO!\n"));
             audioInit(stationUrls[i_stationIdx]);
             ui8ConnTentative = 0;
             currentState = STATE_RADIO;
@@ -328,16 +328,18 @@ void loop()
     }
     case STATE_WIFICONF:
     {
-       if (strlen(ssid) && strlen(pswd) && !deviceConnected)
-       {
+        delay(100);
+        yield();
+        if (strlen(ssid) && strlen(pswd) && !deviceConnected)
+        {
             logSuSeriale(F(ssid));
             logSuSeriale(F(pswd));
             BLEDevice::deinit(true);
-           // writeFile("/config.bin");
+            writeFile("/config.bin");
             ESP.restart();
-       }
-       //currentState = STATE_INIT;        
-       break;
+        }
+        //currentState = STATE_INIT;        
+        break;
     }
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
