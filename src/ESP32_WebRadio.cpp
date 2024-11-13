@@ -20,7 +20,7 @@ bool bLcdFatalError = false;
 I2SStream i2s;
 BluetoothA2DPSink *a2dp_sink;
 WiFiServer *server;
-#define DEBUGGAME
+//#define DEBUGGAME
 
 //Audio task definitions
 TaskHandle_t AudioTaskHandle;
@@ -111,7 +111,7 @@ const char *stationUrls[] = {
   PROGMEM("http://streamcdnf25-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejay80/live.m3u8"),
   PROGMEM("http://streamcdnm5-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejayontheroad/live.m3u8"),
   PROGMEM("http://streamcdnm12-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejaytropicalpizza/live.m3u8"),
-  PROGMEM("http://onair15.xdevel.com/proxy/radiocatsdogs2?mp=/;stream/;"), //Mytology
+  PROGMEM("https://onair15.xdevel.com/proxy/radiocatsdogs2?mp=/;stream/;"), //Mytology
   //PROGMEM("http://streamcdnc2-dd782ed59e2a4e86aabf6fc508674b59.msvdn.net/live/S97044836/chunklist_b128000.m3u8"),
   PROGMEM("https://streamingv2.shoutcast.com/rtl-1025_48.aac"),
   PROGMEM("http://icecast.unitedradio.it/Radio105.mp3"),
@@ -343,6 +343,7 @@ void loop()
     }
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
+            vTaskDelay(1);
             if ((millis() - iUltimaAccensioneDisplay) > iTimeoutDisplay)
             {
                 lcd.noBacklight();
@@ -369,6 +370,9 @@ void loop()
             currentState = STATE_BLUETOOTSPEAKER;
         break;
     }
+    case STATE_BLUETOOTSPEAKER:
+        vTaskDelay(1);
+        break;
     default:
         break;
     }
@@ -378,6 +382,7 @@ void loop()
     KEY_4->tick();
     KEY_5->tick();
     KEY_6->tick();
+    
 }
 
 void setBtnMode()
@@ -387,25 +392,6 @@ void setBtnMode()
     else
         btnMode = BTN_MODE_VOLUME;
     return;
-    static int iToneStatus = 0;
-    switch (iToneStatus)
-    {
-        case 0:
-            // statements
-            audio->setTone(2, 0, -1);
-            logSuSeriale(F("%d\n"), iToneStatus);
-            iToneStatus = 1;
-            break;
-        case 1:
-            audio->setTone(0, 0, 0);
-            logSuSeriale(F("%d\n"), iToneStatus);
-            iToneStatus = 0;
-            break;
-        default:
-             break;
-    // statements
-    }
-    //Serial.printf("%d\n", iBass);
 }
 void changeMode()
 {
@@ -514,10 +500,10 @@ void audioInit(const char * urlStation)
     audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, I2S_MCLK);
     //audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
     audio->setVolumeSteps(35);
-    audio->setVolume(35); // due to call to upper call 0...35!
+    audio->setVolume(25); // due to call to upper call 0...35!
 //    values can be between -40 ... +6 (dB)
 
-    audio->setTone(6, 0, -3);
+    //audio->setTone(6, -6, -12);
     if (!audio->connecttohost(urlStation))
     {
         ESP.restart();
@@ -537,6 +523,7 @@ void audioInit(const char * urlStation)
 
 void audioTask(void *parameter)
 {
+static uint uiMultiplier = 0;
   while (true)
   {
     if(xQueueReceive(LoopToAudioQueue, &audioRxTaskMessage, 1) == pdPASS)
@@ -552,7 +539,10 @@ void audioTask(void *parameter)
       }
       if (audioRxTaskMessage.cmd == SET_BASS)
       {
-        audio->setTone(0, 0, -3);
+        logSuSeriale(F("%D-%d-%d\n"), 6, -3*uiMultiplier, -6*uiMultiplier );
+        audio->setTone(6, -3*uiMultiplier, -6*uiMultiplier);
+        if(uiMultiplier++ > 6)
+            uiMultiplier = 0;
       }
     }
     audio->loop();
@@ -616,7 +606,7 @@ void printOnLcd(int idx, const char* info)
 } 
 void audio_info(const char*info)
 {
-   //logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
+   logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
 }
 
 void audio_showstreamtitle(const char* info)
