@@ -20,31 +20,13 @@ bool bLcdFatalError = false;
 I2SStream i2s;
 BluetoothA2DPSink *a2dp_sink;
 WiFiServer *server;
-//#define DEBUGGAME
+#define DEBUGGAME
 
-//Audio task definitions
-TaskHandle_t AudioTaskHandle;
-enum uieCommand{ SET_VOLUME, GET_VOLUME, NEXT_STATION, PREV_STATION, CHANGE_MODE, SET_BASS, SEET_MID, SET_HIGH};
-
-struct audioMessage{
-    uieCommand  cmd;
-    const char* txt1;
-    const char* txt2;
-    const char* txt3;
-    uint8_t    value1;
-    uint16_t    value2;
-    uint8_t    ret;
-} audioTxMessage, //Sent from loop to audiotask
-  audioRxTaskMessage,//received from audiotask sent by loop
-  audioTxTaskMessage, //Sent from audiotask to loop
-  audioRxMessage; //received from loop sent by audiotask
 enum enButtonMode{
     BTN_MODE_VOLUME,
     BTN_MODE_EQUALIZER
 } btnMode;
 
-QueueHandle_t LoopToAudioQueue = NULL;
-QueueHandle_t AudioToLoopQueue = NULL;
 
 //Audiokit i2s pin definition
 #define I2S_DOUT      26 //35
@@ -118,7 +100,6 @@ const char *stationUrls[] = {
   PROGMEM("http://icy.unitedradio.it/Subasio.mp3"),
   PROGMEM("http://streaming.controradio.it:8190/;?type=http&nocache=76494"), //Controradio 
 };
-
 SemaphoreHandle_t mutex_updating;
 void setup() {
 #ifdef DEBUGGAME  
@@ -342,7 +323,8 @@ void loop()
     }
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
-            vTaskDelay(1/portTICK_PERIOD_MS);
+            audio->loop();
+            vTaskDelay(7/portTICK_PERIOD_MS);
             if ((millis() - iUltimaAccensioneDisplay) > iTimeoutDisplay)
             {
                 lcd.noBacklight();
@@ -398,10 +380,9 @@ void changeMode()
     {
         logSuSeriale(F("Changing state\n"));
         currentState = STATE_INITA2DP;
+        audio->stopSong();
         WiFi.disconnect(true, true);
-        audioTxMessage.cmd = CHANGE_MODE;
-        xQueueSend(LoopToAudioQueue, &audioTxMessage, portMAX_DELAY);
-        delay(1000);
+        vTaskDelay(1000/portTICK_PERIOD_MS);
     }
     else //BT speaker mode so move to radio
     {
@@ -410,7 +391,6 @@ void changeMode()
         a2dp_sink->end(true);
         delete a2dp_sink;
         ESP.restart();
-
     }
 }
 void volumeDown()
@@ -422,6 +402,8 @@ void volumeDown()
 }
 void volumeUp()
 {
+    
+    static uint uiMultiplier = 0;
     if (btnMode == BTN_MODE_VOLUME)
     {
         if (AudioKitEs8388V1.getVolume() < 100)
@@ -430,8 +412,10 @@ void volumeUp()
     }
     else
     {
-        audioTxMessage.cmd = SET_BASS;
-        xQueueSend(LoopToAudioQueue, &audioTxMessage, portMAX_DELAY);
+        logSuSeriale(F("%D-%d-%d\n"), 6, -3*uiMultiplier, -6*uiMultiplier );
+        audio->setTone(6, -3*uiMultiplier, -6*uiMultiplier);
+        if(uiMultiplier++ > 6)
+            uiMultiplier = 0;
     }
     printOnLcd(i_stationIdx);
 }
@@ -444,10 +428,7 @@ void prevStation()
             if (i_stationIdx < 0)
                 i_stationIdx = IDX_LAST_STATIONS;
             logSuSeriale(F("Station %d-%s\n"), i_stationIdx, stationsName[i_stationIdx]);
-            audioTxMessage.cmd = PREV_STATION;
-            audioTxMessage.txt1 = stationUrls[i_stationIdx];
-            audioTxMessage.txt2 = stationsName[i_stationIdx];
-            xQueueSend(LoopToAudioQueue, &audioTxMessage, portMAX_DELAY);
+            audio->connecttospeech(stationsName[i_stationIdx], "it");
             printOnLcd(i_stationIdx);
             break;
         case STATE_BLUETOOTSPEAKER:
@@ -472,11 +453,7 @@ void nextStation()
             else
                 i_stationIdx = 0;
             logSuSeriale(F("Station %d-%s\n"), i_stationIdx, stationsName[i_stationIdx]);
-            audioTxMessage.cmd = NEXT_STATION;
-            audioTxMessage.value1 = i_stationIdx;
-            audioTxMessage.txt1 = stationUrls[i_stationIdx];
-            audioTxMessage.txt2 = stationsName[i_stationIdx];
-            xQueueSend(LoopToAudioQueue, &audioTxMessage, portMAX_DELAY);
+            audio->connecttospeech(stationsName[i_stationIdx], "it");
             printOnLcd(i_stationIdx);
             break;
         case STATE_BLUETOOTSPEAKER:
@@ -486,15 +463,8 @@ void nextStation()
     }
 } 
 
-//Begin audio thread section
-
-void CreateQueues(){
-    LoopToAudioQueue = xQueueCreate(2, sizeof(struct audioMessage));
-    AudioToLoopQueue = xQueueCreate(2, sizeof(struct audioMessage));
-}
 void audioInit(const char * urlStation)
 {
-    CreateQueues();
     audio = new Audio;
     audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, I2S_MCLK);
     //audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
@@ -509,48 +479,7 @@ void audioInit(const char * urlStation)
     }
     // aac
     logSuSeriale(F("init %s\n"),urlStation);
-    xTaskCreatePinnedToCore(
-        audioTask,          /* Function to implement the task */
-        "audioplay",        /* Name of the task */
-        7500,               /* Stack size in words */
-        NULL,               /* Task input parameter */
-        2,                  /* Priority of the task */
-        &AudioTaskHandle,   /* Task handle. */
-        0                   /* Core where the task should run */
-    );
 }
-
-void audioTask(void *parameter)
-{
-static uint uiMultiplier = 0;
-  while (true)
-  {
-    if(xQueueReceive(LoopToAudioQueue, &audioRxTaskMessage, 1) == pdPASS)
-    {
-      if (audioRxTaskMessage.cmd == NEXT_STATION || audioRxTaskMessage.cmd == PREV_STATION)
-      {
-        audio->connecttospeech(audioRxTaskMessage.txt2, "it");
-      }
-      if (audioRxTaskMessage.cmd == CHANGE_MODE)
-      {
-        audio->stopSong();
-        break;
-      }
-      if (audioRxTaskMessage.cmd == SET_BASS)
-      {
-        logSuSeriale(F("%D-%d-%d\n"), 6, -3*uiMultiplier, -6*uiMultiplier );
-        audio->setTone(6, -3*uiMultiplier, -6*uiMultiplier);
-        if(uiMultiplier++ > 6)
-            uiMultiplier = 0;
-      }
-    }
-    audio->loop();
-    vTaskDelay(7); //Necessario??
-  }
-  logSuSeriale(F("Deleting audio task....\n"));
-  vTaskDelete( NULL );
-}
-
 void printOnLcd(int idx, const char* info)
 {
     if (!bLcdFatalError)
@@ -626,8 +555,8 @@ void audio_commercial(const char* info)
 void audio_eof_speech(const char*info)
 {
     //Serial.println("End of speech!");
-    logSuSeriale(F("End of speech %s-%s\n"), audioRxTaskMessage.txt2, audioRxTaskMessage.txt1);
-    if(!audio->connecttohost(audioRxTaskMessage.txt1))
+    logSuSeriale(F("End of speech %s-%s\n"), stationsName[i_stationIdx], stationUrls[i_stationIdx]);
+    if(!audio->connecttohost(stationUrls[i_stationIdx]))
         ESP.restart();
 }
 
