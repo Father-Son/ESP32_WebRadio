@@ -328,8 +328,7 @@ void loop()
     }
     case STATE_WIFICONF:
     {
-        delay(100);
-        yield();
+        vTaskDelay(10);
         if (strlen(ssid) && strlen(pswd) && !deviceConnected)
         {
             logSuSeriale(F(ssid));
@@ -343,7 +342,7 @@ void loop()
     }
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
-            vTaskDelay(1);
+            vTaskDelay(1/portTICK_PERIOD_MS);
             if ((millis() - iUltimaAccensioneDisplay) > iTimeoutDisplay)
             {
                 lcd.noBacklight();
