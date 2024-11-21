@@ -10,7 +10,12 @@
 #define UUID_CHARACTERISTIC_MYWIFI_PASS "1ba1a023-3ca0-4c92-8739-8fd7b53473f0"
 static char ssid[32];
 static char pswd[63];
-bool deviceConnected = false;
+
+enum EnBleConnectionStatus{
+  BLE_DISCONNECTED,
+  BLE_WAITING_CONNECTION,
+  BLE_CONNECTED
+} BleConnStatus;
 ////BLE CALL BACK
 class SSID_Callbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pCharacteristic) {
@@ -38,12 +43,12 @@ class PWD_Callbacks : public BLECharacteristicCallbacks {
 };
 class MyServerCallbacks : public BLEServerCallbacks {
   void onConnect(BLEServer *pServer) {
-    deviceConnected = true;
+    BleConnStatus =BLE_CONNECTED;
     //BLEDevice::startAdvertising();
   };
 
   void onDisconnect(BLEServer *pServer) {
-    deviceConnected = false;
+    BleConnStatus =BLE_DISCONNECTED;
     Serial.println("Disconnected");
   }
 };

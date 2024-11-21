@@ -20,7 +20,7 @@ bool bLcdFatalError = false;
 I2SStream i2s;
 BluetoothA2DPSink *a2dp_sink;
 WiFiServer *server;
-#define DEBUGGAME
+//#define DEBUGGAME
 
 enum enButtonMode{
     BTN_MODE_VOLUME,
@@ -61,7 +61,7 @@ void audioInit(const char * urlStation);
 void audioTask(void *parameter);
 int readFile(const char * path);
 #define IDX_LAST_STATIONS 14
-static int i_stationIdx = 0;
+static int i_stationIdx =5;
 const char *stationsName[] = {
   PROGMEM("Virgin radio"),
   PROGMEM("Virgin rock 80"),
@@ -304,13 +304,14 @@ void loop()
         pAdvertising->start();
         memset(ssid, 0, 32);
         memset(pswd, 0, 63);
+        BleConnStatus = BLE_WAITING_CONNECTION;
         currentState = STATE_WIFICONF;
         break;
     }
     case STATE_WIFICONF:
     {
-        vTaskDelay(10);
-        if (strlen(ssid) && strlen(pswd) && !deviceConnected)
+        vTaskDelay(10/portTICK_PERIOD_MS);
+        if (strlen(ssid) && strlen(pswd) && BleConnStatus == BLE_DISCONNECTED)
         {
             logSuSeriale(F(ssid));
             logSuSeriale(F(pswd));
@@ -318,13 +319,15 @@ void loop()
             writeFile("/config.bin");
             ESP.restart();
         }
+        if(BleConnStatus == BLE_DISCONNECTED)
+            ESP.restart();
         //currentState = STATE_INIT;        
         break;
     }
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
             audio->loop();
-            vTaskDelay(7/portTICK_PERIOD_MS);
+            vTaskDelay(7/portTICK_PERIOD_MS); 
             if ((millis() - iUltimaAccensioneDisplay) > iTimeoutDisplay)
             {
                 lcd.noBacklight();
