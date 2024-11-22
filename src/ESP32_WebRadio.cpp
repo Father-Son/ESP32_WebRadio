@@ -7,7 +7,6 @@
 #include <hd44780ioClass/hd44780_I2Cexp.h> // i2c expander i/o class header
 #include "BluetoothA2DPSink.h"
 #include "bledefinitions.h"
-// WiFi SSID and PWD definition...
 
 hd44780_I2Cexp lcd; // declare lcd object: auto locate & auto config expander chip
 // LCD geometry
@@ -20,7 +19,7 @@ bool bLcdFatalError = false;
 I2SStream i2s;
 BluetoothA2DPSink *a2dp_sink;
 WiFiServer *server;
-//#define DEBUGGAME
+#define DEBUGGAME
 
 enum enButtonMode{
     BTN_MODE_VOLUME,
@@ -98,7 +97,7 @@ const char *stationUrls[] = {
   PROGMEM("https://streamingv2.shoutcast.com/rtl-1025_48.aac"),
   PROGMEM("http://icecast.unitedradio.it/Radio105.mp3"),
   PROGMEM("http://icy.unitedradio.it/Subasio.mp3"),
-  PROGMEM("http://streaming.controradio.it:8190/;?type=http&nocache=76494"), //Controradio 
+  PROGMEM("https://s4.yesstreaming.net/proxy/contror1/stream"), //Controradio 
 };
 SemaphoreHandle_t mutex_updating;
 void setup() {
@@ -326,6 +325,8 @@ void loop()
     }
     case STATE_RADIO:
             //Serial.println("Mode radio on!");
+            if(WiFi.status() != WL_CONNECTED)
+                currentState = STATE_INIT;
             audio->loop();
             vTaskDelay(7/portTICK_PERIOD_MS); 
             if ((millis() - iUltimaAccensioneDisplay) > iTimeoutDisplay)
