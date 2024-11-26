@@ -476,7 +476,7 @@ void audioInit(const char * urlStation)
     audio->setVolume(25); // due to call to upper call 0...35!
 //    values can be between -40 ... +6 (dB)
 
-    //audio->setTone(6, -6, -12);
+    //audio->setTone(6, -3, -6);
     if (!audio->connecttohost(urlStation))
     {
         ESP.restart();
@@ -538,7 +538,7 @@ void printOnLcd(int idx, const char* info)
 } 
 void audio_info(const char*info)
 {
-   logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
+   //logSuSeriale(F("audio_info %s-%s\n"), info, audio->getCodecname());
 }
 
 void audio_showstreamtitle(const char* info)
@@ -549,7 +549,7 @@ void audio_showstreamtitle(const char* info)
 }
 void audio_icydescription(const char* info)
 {
-    logSuSeriale(F("icydescription %s\n"), info);
+    //logSuSeriale(F("icydescription %s\n"), info);
 }
 void audio_commercial(const char* info)
 {
