@@ -19,7 +19,7 @@ enum EnBleConnectionStatus{
 ////BLE CALL BACK
 class SSID_Callbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pCharacteristic) {
-    string value = pCharacteristic->getValue();
+    String value = pCharacteristic->getValue();
 
     if (value.length() > 0) {
       strcpy(ssid, value.c_str());
@@ -31,7 +31,7 @@ class SSID_Callbacks : public BLECharacteristicCallbacks {
 };
 class PWD_Callbacks : public BLECharacteristicCallbacks {
   void onWrite(BLECharacteristic *pCharacteristic) {
-    string value = pCharacteristic->getValue();
+    String value = pCharacteristic->getValue();
 
     if (value.length() > 0) {
       strcpy(pswd, value.c_str());

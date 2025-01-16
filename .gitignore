@@ -5,3 +5,4 @@
 .vscode/launch.json
 .vscode/ipch
 src/mysecret.h
+managed_components

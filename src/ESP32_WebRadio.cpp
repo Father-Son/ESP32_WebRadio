@@ -530,10 +530,15 @@ void audioInit(const char * urlStation)
 {
     CreateQueues();
     audio = new Audio;
+    logSuSeriale(F("qui\n"));
+ //delay(5000);
     audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT, I2S_MCLK);
     //audio->setPinout(I2S_BCLK, I2S_LRC, I2S_DOUT);
-    audio->setVolumeSteps(35);
-    audio->setVolume(25); // due to call to upper call 0...35!
+    logSuSeriale(F("quo\n"));
+ //delay(5000);
+    audio->setVolume(64); 
+    logSuSeriale(F("qua\n"));
+//delay(5000);
 //    values can be between -40 ... +6 (dB)
 
     //audio->setTone(6, -3, -6);
