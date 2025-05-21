@@ -13,6 +13,7 @@
 #define SCREEN_HEIGHT 32 // OLED display height, in pixels
 #define OLED_RESET     -1 // Reset pin # (or -1 if sharing Arduino reset pin)
 #define SCREEN_ADDRESS 0x3C ///< See datasheet for Address; 0x3D for 128x64, 0x3C for 128x32
+#define SPI_CLOCK SD_SCK_MHZ(4)
 Adafruit_SSD1306 *display;//(SCREEN_WIDTH, SCREEN_HEIGHT, &Wire, OLED_RESET);
 /*Bluetooth a2dp section*/
 I2SStream i2s;
@@ -77,6 +78,7 @@ void logSuSeriale(const __FlashStringHelper *frmt, ...);
 void audioInit(const char * urlStation);
 void audioTask(void *parameter);
 int readFile(const char * path);
+int writeFile(const char * path);
 #define IDX_LAST_STATIONS 14
 static int i_stationIdx =6;
 const char *stationsName[] = {
@@ -106,7 +108,7 @@ const char *stationUrls[] = {
   PROGMEM("http://icy.unitedradio.it/VirginRockClassics.mp3"),
   PROGMEM("http://icy.unitedradio.it/Virgin_05.mp3"),
   PROGMEM("http://icy.unitedradio.it/um1026.mp3"), 
-  PROGMEM("http://streamcdnb1-4c4b867c89244861ac216426883d1ad0.msvdn.net/radiodeejay/radiodeejay/play1.m3u8"),
+  PROGMEM("http://4c4b867c89244861ac216426883d1ad0.msvdn.net/radiodeejay/radiodeejay/master_ma.m3u8"),
   PROGMEM("http://streamcdnf25-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejay80/live.m3u8"),
   PROGMEM("http://streamcdnm5-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejayontheroad/live.m3u8"),
   PROGMEM("http://streamcdnm12-4c4b867c89244861ac216426883d1ad0.msvdn.net/webradio/deejaytropicalpizza/live.m3u8"),
@@ -118,6 +120,21 @@ const char *stationUrls[] = {
   PROGMEM("https://s4.yesstreaming.net/proxy/contror1/stream"), //Controradio 
 };
 SemaphoreHandle_t mutex_updating;
+/*
+ * SD Card | ESP32
+ *    D2       12
+ *    D3       13
+ *    CMD      15
+ *    VSS      GND
+ *    VDD      3.3V
+ *    CLK      14
+ *    VSS      GND
+ *    D0       2  (add 1K pull up after flashing)
+ *    D1       4
+ *
+ *  On the AI Thinker boards the pin settings should be On, On, On, On, On,
+*/
+
 void setup() {
 #ifdef DEBUGGAME  
     Serial.begin(115200);
@@ -143,7 +160,7 @@ void setup() {
     cfg.i2s.bits = audio_driver::BIT_LENGTH_16BITS;
     cfg.i2s.rate = audio_driver::RATE_44K;
     cfg.i2s.fmt = audio_driver::I2S_NORMAL;
-    cfg.sd_active = true; //false;
+    cfg.sd_active = false;
     // get current pin value 
     auto i2c_opt = AudioKitEs8388V1.getPins().getI2CPins(PinFunction::CODEC);
     
@@ -172,26 +189,8 @@ void setup() {
     display->setTextColor(SSD1306_WHITE);
     display->clearDisplay();
 
-/*        // define custom SPI pins
-    SPI.begin(14, 2, 15, 13);
 
-    // intialize SD
-    if(!SD.begin(13)){   
-        logSuSeriale(F("SD.Begin failed...\n"));
-        //return;
-    }
-    readFile("/config.bin");
-*/
     AudioKitEs8388V1.begin(cfg);    
-    auto spi_opt = AudioKitEs8388V1.getPins().getSPIPins(PinFunction::SD);
-    if (spi_opt)
-    {
-        auto spi = spi_opt.value();
-        
-        if (!SD.begin(spi.cs, *(spi.p_spi)))
-            logSuSeriale(F("SD.Begin failed...%d\n"), spi.cs);
-    }
-    //readFile("/config.bin");
     /*auto pinne = pins.value();
     int i = pinne.pin;*/
     auto pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 1);
@@ -213,7 +212,12 @@ void setup() {
     pins = AudioKitEs8388V1.getPins().getPin(PinFunction::KEY, 6);
     KEY_6 = new OneButton(pins.value().pin);
     KEY_6->attachClick(changeMode);
-
+    memset(ssid, 0, 32);
+    memset(pswd, 0, 63);
+    readFile("/config.bin");
+    //strcpy(ssid, "AuthorizedGuest");
+    //strcpy(pswd, "cURkAvL8,%9h.m6A");
+    
    // initOtaUpdateSubsistem();
     
 //  *** local files ***
@@ -230,67 +234,6 @@ unsigned long previousTime = 0;
 // Define timeout time in milliseconds (example: 2000ms = 2s)
 const long timeoutTime = 2000;
 
-int readFile(const char * path) {
-  logSuSeriale(F("Reading file\n"));
-  memset(ssid, 0, 32);
-  memset(pswd, 0, 63);
-  File file = SD.open(path, "r");
-  if (!file) {
-    logSuSeriale(F("Failed to open file for reading"));
-    return 1;
-  }
-  if (file.available())
-  {
-    strcpy(ssid, (char*)file.readStringUntil('\r').c_str());
-  }
-  file.readStringUntil('\n');
-  //ssid[15]=0;
-  if (file.available())
-  {
-    strcpy(pswd, (char*)file.readStringUntil('\r').c_str());
-  }
-  file.readStringUntil('\n');
-  //pswd[16]=0;
-  file.close();
-  return 0;
-}
-int writeFile(const char * path) {
-    logSuSeriale(F("Writing file\n"));
-    SD.remove(path);
-    File file = SD.open(path, "w", true);
-    if (!file) {
-    logSuSeriale(F("Failed to open file for writing\n"));
-    return 1;
-    }
-    file.println(ssid);
-    file.println(pswd);
-    delay(2000); // Make sure the CREATE and LASTWRITE times are different
-    file.close();
-    return 0;
-}
-void updateVuMeter(uint16_t lrPos)
-{
-    uint i = 0;
-    uint8_t lPos = 0;
-    uint8_t rPos = 0;
-    static unsigned int uiLastUpdate = 0;
-    if ((millis() - uiLastUpdate) < 40)
-      return;
-    lPos = (round(lrPos >> 8)*10/127);
-    rPos = (round(lrPos & 0x00FF)*10/127);
-    uiLastUpdate = millis();
-    display->clearDisplay();
-   /* for (i = 0; i<lPos; i++)
-    {
-        display->fillRoundRect(i*5 + 1, 1, 6, 3, 0, SSD1306_WHITE);
-    }
-    for (i = 0; i<rPos; i++)
-    {
-        display->fillRoundRect(i*5 + 1, 8, 6, 3, 0, SSD1306_WHITE);
-    }*/
-    printOnLcd(i_stationIdx);
-    display->display();
-}
 void loop()
 {
     static uint8_t ui8ConnTentative = 0;
@@ -302,7 +245,7 @@ void loop()
         WiFi.enableSTA(true); //Needed to switch on WIFI?
         WiFi.mode(WIFI_STA);
         WiFi.setTxPower(WIFI_POWER_7dBm);
-        readFile("/config.bin");
+        
         logSuSeriale(F("%s\n"), ssid);
         logSuSeriale(F("%s\n"), pswd);
         WiFi.begin(ssid, pswd);
@@ -360,8 +303,8 @@ void loop()
         {
             logSuSeriale(F(ssid));
             logSuSeriale(F(pswd));
-            BLEDevice::deinit(true);
             writeFile("/config.bin");
+            BLEDevice::deinit(true);
             ESP.restart();
         }
         if(BleConnStatus == BLE_DISCONNECTED)
@@ -646,3 +589,47 @@ void logSuSeriale(const __FlashStringHelper *frmt, ...) {
   xSemaphoreGive(mutex_updating);
 #endif
 }
+
+int readFile(const char * path) {
+  logSuSeriale(F("Reading file\n"));
+  memset(ssid, 0, 32);
+  memset(pswd, 0, 63);
+  if(SD_MMC.begin("/sdcard", true, true))
+  {
+    File file = SD_MMC.open(path, "r");
+    if (!file) {
+        logSuSeriale(F("Failed to open file for reading\n"));
+        return 1;
+    }
+    if (file.available())
+    {
+        strcpy(ssid, (char*)file.readStringUntil('\r').c_str());
+    }
+    file.readStringUntil('\n');
+    //ssid[15]=0;
+    if (file.available())
+    {
+        strcpy(pswd, (char*)file.readStringUntil('\r').c_str());
+    }
+    file.readStringUntil('\n');
+    //pswd[16]=0;
+    file.close();
+  }
+  return 0;
+}
+
+int writeFile(const char * path) {
+    logSuSeriale(F("Writing file\n"));
+    SD_MMC.remove(path);
+    File file = SD_MMC.open(path, "w", true);
+    if (!file) {
+    logSuSeriale(F("Failed to open file for writing\n"));
+    return 1;
+    }
+    file.println(ssid);
+    file.println(pswd);
+    delay(2000); // Make sure the CREATE and LASTWRITE times are different
+    file.close();
+    return 0;
+}
+    
