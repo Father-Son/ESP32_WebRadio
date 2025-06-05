@@ -326,7 +326,8 @@ void loop()
             break;
     case STATE_INITA2DP:
     {
-            a2dp_sink = new BluetoothA2DPSink(i2s);
+            WiFi.disconnect(true, true);
+            /*a2dp_sink = new BluetoothA2DPSink(i2s);
             auto cfg = i2s.defaultConfig();    
             cfg.pin_bck = I2S_BCLK;
             cfg.pin_ws = I2S_LRC;
@@ -338,14 +339,15 @@ void loop()
             a2dp_sink->set_avrc_metadata_callback(avrc_metadata_callback);
             a2dp_sink->start("ESP32_Speaker");
             //AudioKitEs8388V1.setInputVolume(100);
-            logSuSeriale(F("Mode bluetooth speaker"));
+            logSuSeriale(F("Mode bluetooth speaker\n"));
             iInitialVolume = 70;
-            AudioKitEs8388V1.setVolume(iInitialVolume);
+            AudioKitEs8388V1.setVolume(iInitialVolume);*/
+            vTaskDelay(7/portTICK_PERIOD_MS); 
             currentState = STATE_BLUETOOTSPEAKER;
         break;
     }
     case STATE_BLUETOOTSPEAKER:
-        vTaskDelay(1);
+        vTaskDelay(7/portTICK_PERIOD_MS); 
         break;
     default:
         break;
@@ -372,12 +374,8 @@ void changeMode()
     if (currentState != STATE_BLUETOOTSPEAKER) //Not state BTSpeaker then move to it
     {
         logSuSeriale(F("Changing state\n"));
-        currentState = STATE_INITA2DP;
-        audio->stopSong();
-        WiFi.disconnect(true, true);
         audioTxMessage.cmd = CHANGE_MODE;
         xQueueSend(LoopToAudioQueue, &audioTxMessage, portMAX_DELAY);
-        vTaskDelay(1000/portTICK_PERIOD_MS);
     }
     else //BT speaker mode so move to radio
     {
@@ -509,12 +507,14 @@ static uint uiMultiplier = 0;
   {
     if(xQueueReceive(LoopToAudioQueue, &audioRxTaskMessage, 1) == pdPASS)
     {
+        logSuSeriale(F("************************************************"));
       if (audioRxTaskMessage.cmd == NEXT_STATION || audioRxTaskMessage.cmd == PREV_STATION)
       {
         audio->connecttospeech(audioRxTaskMessage.txt2, "it");
       }
       if (audioRxTaskMessage.cmd == CHANGE_MODE)
       {
+        logSuSeriale(F("*********************Stopping song to change mode\n***************************"));
         audio->stopSong();
         break;
       }
@@ -534,6 +534,9 @@ static uint uiMultiplier = 0;
   }
   logSuSeriale(F("Deleting audio task....\n"));
   vTaskDelete( NULL );
+  delete audio;
+  audio = NULL;
+  currentState = STATE_INITA2DP;
 }
 void printOnLcd(int idx, const char* info)
 {
@@ -573,7 +576,7 @@ void audio_eof_speech(const char*info)
 
 
 void avrc_metadata_callback(uint8_t data1, const uint8_t *data2) {
-  //logSuSeriale(F("AVRC metadata rsp: attribute id 0x%x, %s\n"), data1, data2);
+  logSuSeriale(F("AVRC metadata rsp: attribute id 0x%x, %s\n"), data1, data2);
 }
 
 void logSuSeriale(const __FlashStringHelper *frmt, ...) {
